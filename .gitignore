@@ -1,0 +1,35 @@
+.env
+.env.*
+secrets/
+*.pem
+*.key
+*.p12
+.python-version
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+build/
+coverage/
+.claude/settings.local.json
+*.db
+*.egg-info/
+test-results/
+
+# External skills — managed via skills-lock.json + .devcontainer/update-skills.sh
+# Entries below are auto-added by: .devcontainer/update-skills.sh add <pkg>
+.claude/skills/.skills-last-updated
+.agents/
+.claude/skills/write-a-prd/
+.claude/skills/prd-to-plan/
+.claude/skills/prd-to-issues/
+.claude/skills/grill-me/
+.claude/skills/design-an-interface/
+.claude/skills/request-refactor-plan/
+.claude/skills/tdd/
+.claude/skills/triage-issue/
+.claude/skills/improve-codebase-architecture/
+.claude/skills/setup-pre-commit/
+.claude/skills/git-guardrails-claude-code/
+.claude/skills/write-a-skill/

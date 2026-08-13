@@ -1,0 +1,6 @@
+model = "gpt-5.4"
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
+
+[projects."/workspaces/<projectname>"]
+trust_level = "trusted"
