@@ -1,7 +1,6 @@
-// For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/python
+// For format details, see https://aka.ms/devcontainer.json.
 {
-	"name": "<projectname>",
+	"name": "pukk-test",
 
   "initializeCommand": "mkdir -p ${localEnv:HOME}/.claude ${localEnv:HOME}/.codex ${localEnv:HOME}/.config/gh && touch ${localEnv:HOME}/.claude.json",
 
@@ -33,16 +32,12 @@
     "vscode": {
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
-        "files.exclude": {
-          "**/.venv": true
-        }
+        "go.toolsManagement.autoUpdate": true
       },
       "extensions": [
         "ms-vscode-remote.remote-containers",
         "ms-vscode-remote.remote-wsl",
-        "ms-python.python",
-        "ms-python.vscode-pylance",
+        "golang.go",
         "dbaeumer.vscode-eslint"
       ]
     }

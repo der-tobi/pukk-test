@@ -1,0 +1,9 @@
+{
+  "wifi_ssid": "", 				// SSID of the WiFi network.
+  "wifi_pass": "",				// Password of the WiFi Network.
+  "wifi_hidden": false,	// Flag for hidden networks.
+  "cms_server_address": "",		// Address for the PuKK to send requests to.
+  "do_ota": true,			// Flag for checking for updates on boot and every 10 days.
+  "ota_address": "",			// UNUSED Address for where to get OTA, Will always try fallback address (of ProDVX).
+  "poll_interval_ms": 5000 	// Interval between polling requests. 5000ms when not specified.
+}

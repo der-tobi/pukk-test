@@ -36,5 +36,14 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 RUN npm install -g @openai/codex @anthropic-ai/claude-code
 
+# Go toolchain — pukk-test builds a single cross-compiled executable
+# (Linux devcontainer -> Windows binary via GOOS=windows go build).
+ARG GO_VERSION=1.26.5
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 COPY ./.devcontainer/init-shell.sh /etc/profile.d/init-shell.sh
 RUN chmod +x /etc/profile.d/init-shell.sh

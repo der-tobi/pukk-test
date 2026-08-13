@@ -1,28 +1,29 @@
-# <projectname> API Contract
-# Status: PLACEHOLDER — will be defined after PRD + interface design session
+# pukk-test API Contract
+# Status: PLACEHOLDER — PuKK-facing endpoints still need to be defined
 #
-# This file is the single source of truth between frontend (Claude) and backend (Codex).
+# This file is the single source of truth for the PuKK-facing HTTP API exposed by
+# the single Go server.
 # Changes require a proposal in docs/api-proposals/ and agreement from both sides.
 #
-# To mock locally (frontend dev):
+# To mock locally without a physical PuKK device:
 #   npx @stoplight/prism-cli mock api-contract/openapi.yaml --port 4010
 
 openapi: "3.1.0"
 info:
-  title: <projectname> API
+  title: pukk-test API
   version: "0.0.1-draft"
   description: |
     TBD
 
 servers:
   - url: http://localhost:4010
-    description: Prism mock server (frontend dev)
+    description: Prism mock server
   - url: http://localhost:5000
-    description: Local backend (Codex dev)
+    description: Local Go server
 
 paths: {}
-# Paths will be defined in the interface design session (next session)
+# Paths will be defined before implementation.
 
 components:
   schemas: {}
-  # Schemas will be derived from the canonical domain model after PRD
+  # Schemas will mirror the ProDVX PuKK command/event shapes.

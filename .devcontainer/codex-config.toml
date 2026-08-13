@@ -1,6 +1,7 @@
-model = "gpt-5.4"
+model = "gpt-5.5"
+model_reasoning_effort = "high"
 sandbox_mode = "danger-full-access"
 approval_policy = "on-request"
 
-[projects."/workspaces/<projectname>"]
+[projects."/workspaces/pukk-test"]
 trust_level = "trusted"

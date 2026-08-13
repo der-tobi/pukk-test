@@ -9,11 +9,7 @@
 
 ## Session Goals
 
-1. `/grill-me` — stress-test the project idea in `project.md`
-2. `/write-a-prd` — turn it into a PRD
-3. `/prd-to-plan` — break into phases
-4. `/prd-to-issues` — create GitHub issues
-5. `/design-an-interface` — design the interface
+1. `/grilling` — stress-test the project idea in `project.md`
 
 ## Memory — persist everything in the repo
 

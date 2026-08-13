@@ -1,0 +1,28 @@
+---
+name: rooms-api-integration
+description: Which 3V Rooms API endpoints/versions the server uses for booking mutation, how booking IDs are resolved, and known gaps/risks to verify during implementation
+metadata:
+  type: project
+---
+
+Settled via `/grilling` on 2026-08-13. Primary source for facts: `docs/research/3v-rooms-api.md` (thorough, fetched directly against the live Swagger specs) — this file records the *decisions* made on top of those facts, not a restatement of the research.
+
+**Mixed API versions, deliberately — "it's a PoC":** freebusy reads stay on **v2** (`ressources/44/freebusy`, as already given in `project.md`'s working example). Ad-hoc booking creation also uses **v2** (`POST /{mandator}/api/v2.0/bookings/quickbooking`), because that is the researched endpoint matching the needed start/end/resource shape. Checkin/checkout/release use **v1**, because v2 has no equivalent endpoints — `docs/research/3v-rooms-api.md` §D confirms these exist only in v1. Extend is still flagged below because the preferred v1 update shape has not been fully verified.
+
+**Auth — known discrepancy, accepted anyway:** `project.md` specifies `grant_type=basic`, `client_id=basic-auth`. `docs/research/3v-rooms-api.md` §A found the *documented* flow uses `grant_type=apikey` with a PIN credential — `grant_type=basic` doesn't appear anywhere in the fetched docs. The user has directly tested `grant_type=basic` against their own tenant and confirmed it works, so we build against the `project.md` recipe as given and treat the docs mismatch as the docs being incomplete for this tenant's configuration, not an error in our design.
+
+**Token handling:** no TTL/expiry/refresh-token flow is documented anywhere (`docs/research/3v-rooms-api.md` §A). Cache the token; on a 401, retry once with a fresh token; if that also fails, log loudly and keep serving from the last-known-good freebusy cache rather than crashing or re-prompting mid-run (the password is only ever held in memory from the one startup prompt — see [[tech-stack]] / `project.md`). Matches the [[booking-cache-design]] "assume busy on missing/stale data" fallback.
+
+**Ad-hoc booking creation:** v2 quickbooking (`POST /{mandator}/api/v2.0/bookings/quickbooking`), with `ressourceId=44`, start/end from the provisional selection, and a hardcoded placeholder title (e.g. `"PuKK Ad-hoc"`). `QuickBookingModel` does not mark any field required in the Swagger schema, but runtime requirements are still unverified, so start, end, ressourceId, title, and a minimal participant/headcount shape should be tested against the live tenant first (`docs/research/3v-rooms-api.md` §B).
+
+**Extend:** `PUT /{mandator}/api/v1.0/bookings/{id}` (general update), per the user's explicit preference to reuse one endpoint for both extend and other mutations rather than a dedicated extend op. **Flag for implementation:** an earlier, less rigorous research pass claimed a query-param-based `Bookings_Extend` op (`PUT bookings/{id}?end=&duration=`) exists in v1; `docs/research/3v-rooms-api.md` did not find this and only confirmed a general-purpose `PUT bookings/{id}` update plus the v2 `bookings/{id}/update` (body-based). **This needs to be verified against the live v1 spec/API during implementation** — the exact request shape (query params vs. JSON body) for the v1 update endpoint is unconfirmed.
+
+**Booking-ID discovery — on-demand, not prefetched:** freebusy never returns booking IDs, so at the moment an action needs one (button extend, longpress checkout, NFC checkin), query bookings for a window that includes `now` (for example `now-2min` to `now+2min`, or the current 5-minute bucket) filtered to resource 44, then choose the booking where `start <= now < end`. Do not use a purely past window, because it can miss a meeting during its first minute. This is a starting point to try empirically, not a final-tuned window — adjust if it doesn't reliably catch the active booking. (Upcoming-meeting headroom for the extension algorithm's cap doesn't need this lookup at all — that's already covered by the freebusy bit array already being cached for LED rendering.)
+
+**Checkout vs. release:** look up the current booking's checkoutable state (via `cancheckout` or the `checkinConfirmed` field) and branch — `.../checkout` if checkoutable, `.../release` otherwise. Note from `docs/research/3v-rooms-api.md` §D.4: the resource's admin-configured "Checkout Modus" (Terminieren vs. Freigeben) affects what checkout actually does server-side, which is outside our control and fine to leave as whatever the tenant has configured.
+
+**Checkin-required (orange) is Rooms' policy, not ours:** the server just reads and reflects 3V Rooms' own `checkinConfirmed` field — it doesn't compute its own checkin-required logic. The likely underlying admin setting is "NoShow Delay" (default 15min, per `docs/research/3v-rooms-api.md` §D.3), but its exact mapping to the API's `followUpDuration` field is unconfirmed in the docs — not something we need to resolve since we only read `checkinConfirmed`, not the delay itself.
+
+**NFC checkin pin:** send the same password captured at startup as the `pin` query param on `PUT bookings/{id}/checkin`. Untested — if the account lacks rights or the API rejects it, that's an implementation-time problem to solve, not a design gap.
+
+**How to apply:** whoever implements the Rooms client should treat the v1 update/extend endpoint shape as the first thing to verify against the live API (see the flagged discrepancy above) before building the rest of the mutation flow on top of an assumed shape.
