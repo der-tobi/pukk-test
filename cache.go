@@ -1,0 +1,127 @@
+package main
+
+import (
+	"context"
+	"sync"
+	"time"
+)
+
+type FreeBusyReader interface {
+	FreeBusy(ctx context.Context, start, end time.Time, intervalMinutes int) (string, error)
+}
+
+type CacheConfig struct {
+	ResourceID      int
+	DisplayWindow   time.Duration
+	RefreshInterval time.Duration
+	SafetyMargin    time.Duration
+	IntervalMinutes int
+}
+
+type BookingCache struct {
+	rooms  FreeBusyReader
+	config CacheConfig
+
+	mu     sync.RWMutex
+	window cachedFreeBusy
+}
+
+type cachedFreeBusy struct {
+	start           time.Time
+	end             time.Time
+	intervalMinutes int
+	data            string
+}
+
+type FreeBusyWindow struct {
+	Start           time.Time `json:"start"`
+	End             time.Time `json:"end"`
+	IntervalMinutes int       `json:"intervalMinutes"`
+	Data            string    `json:"data"`
+}
+
+type AvailabilitySnapshot struct {
+	Now   time.Time
+	Busy  [12]bool
+	Known [12]bool
+}
+
+func NewBookingCache(rooms FreeBusyReader, config CacheConfig) *BookingCache {
+	if config.DisplayWindow == 0 {
+		config.DisplayWindow = time.Hour
+	}
+	if config.RefreshInterval == 0 {
+		config.RefreshInterval = 5 * time.Minute
+	}
+	if config.SafetyMargin == 0 {
+		config.SafetyMargin = 10 * time.Minute
+	}
+	if config.IntervalMinutes == 0 {
+		config.IntervalMinutes = 5
+	}
+	return &BookingCache{rooms: rooms, config: config}
+}
+
+func (c *BookingCache) Refresh(ctx context.Context, now time.Time) error {
+	start := bucketStart(now)
+	end := start.Add(c.config.DisplayWindow + c.config.RefreshInterval + c.config.SafetyMargin)
+	data, err := c.rooms.FreeBusy(ctx, start, end, c.config.IntervalMinutes)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	c.window = cachedFreeBusy{
+		start:           start,
+		end:             end,
+		intervalMinutes: c.config.IntervalMinutes,
+		data:            data,
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *BookingCache) Window() FreeBusyWindow {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return FreeBusyWindow{
+		Start:           c.window.start,
+		End:             c.window.end,
+		IntervalMinutes: c.window.intervalMinutes,
+		Data:            c.window.data,
+	}
+}
+
+func (c *BookingCache) Snapshot(now time.Time) AvailabilitySnapshot {
+	c.mu.RLock()
+	window := c.window
+	c.mu.RUnlock()
+
+	var snapshot AvailabilitySnapshot
+	snapshot.Now = now
+	sourceInterval := time.Duration(c.config.IntervalMinutes) * time.Minute
+	if sourceInterval <= 0 {
+		sourceInterval = 5 * time.Minute
+	}
+	displayInterval := 5 * time.Minute
+
+	for i := 0; i < 12; i++ {
+		slotStart := now.Add(time.Duration(i) * displayInterval)
+		slotEnd := slotStart.Add(displayInterval)
+		slotMidpoint := slotStart.Add(slotEnd.Sub(slotStart) / 2)
+		snapshot.Known[i], snapshot.Busy[i] = window.PointState(slotMidpoint, sourceInterval)
+	}
+	return snapshot
+}
+
+func (w cachedFreeBusy) PointState(at time.Time, interval time.Duration) (bool, bool) {
+	if interval <= 0 {
+		return false, true
+	}
+	t := at.Truncate(interval)
+	idx := int(t.Sub(w.start) / interval)
+	if idx < 0 || idx >= len(w.data) || !t.Before(w.end) {
+		return false, true
+	}
+	return true, w.data[idx] == '1'
+}

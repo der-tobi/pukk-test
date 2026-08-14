@@ -1,5 +1,5 @@
 # pukk-test API Contract
-# Status: PLACEHOLDER — PuKK-facing endpoints still need to be defined
+# Status: PoC draft — PuKK-facing endpoints
 #
 # This file is the single source of truth for the PuKK-facing HTTP API exposed by
 # the single Go server.
@@ -13,7 +13,7 @@ info:
   title: pukk-test API
   version: "0.0.1-draft"
   description: |
-    TBD
+    PuKK-facing remote server API implemented by the single Go PoC binary.
 
 servers:
   - url: http://localhost:4010
@@ -21,9 +21,241 @@ servers:
   - url: http://localhost:5000
     description: Local Go server
 
-paths: {}
-# Paths will be defined before implementation.
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      description: Plain endpoint for checking whether the Go process is reachable over the network.
+      responses:
+        "200":
+          description: Server is reachable.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /debug/status:
+    get:
+      summary: Debug status
+      description: Diagnostic state showing whether PuKK requests have reached this process.
+      responses:
+        "200":
+          description: Current debug state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebugStatus"
+  /:
+    get:
+      summary: PuKK poll
+      description: The PuKK polls this endpoint to retrieve the next LED command.
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [poll]
+        - name: mac
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: LED command for the PuKK device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedCommand"
+        "400":
+          description: Unsupported or missing action.
+    post:
+      summary: PuKK event
+      description: The PuKK posts button and NFC events to this endpoint.
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/EventAction"
+        - name: mac
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NfcData"
+      responses:
+        "204":
+          description: Event accepted.
+        "400":
+          description: Missing action.
+        "502":
+          description: Event accepted by PuKK server but failed against the upstream Rooms API.
 
 components:
-  schemas: {}
-  # Schemas will mirror the ProDVX PuKK command/event shapes.
+  schemas:
+    EventAction:
+      type: string
+      enum:
+        - short_press
+        - double_press
+        - multiple_press
+        - long_press_3s
+        - long_press_5s
+        - long_press_15s
+        - nfc
+    LedCommand:
+      type: object
+      required: [command, led_values]
+      properties:
+        command:
+          type: string
+          enum: [set_leds_individual]
+        led_values:
+          $ref: "#/components/schemas/LedValues"
+    LedValues:
+      type: object
+      required: [colors, duration_ms]
+      properties:
+        colors:
+          type: array
+          minItems: 12
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/LedColor"
+        duration_ms:
+          type: integer
+          minimum: 0
+    LedColor:
+      type: object
+      required: [brightness, red, green, blue]
+      properties:
+        brightness:
+          type: integer
+          minimum: 0
+          maximum: 100
+        red:
+          type: integer
+          minimum: 0
+          maximum: 255
+        green:
+          type: integer
+          minimum: 0
+          maximum: 255
+        blue:
+          type: integer
+          minimum: 0
+          maximum: 255
+    NfcData:
+      type: object
+      additionalProperties: true
+      properties:
+        dataType:
+          type: string
+        nfcId:
+          type: string
+        nfcValue:
+          type: string
+    DebugStatus:
+      type: object
+      properties:
+        resourceId:
+          type: integer
+        serverTime:
+          type: string
+          format: date-time
+        totalRequests:
+          type: integer
+        pollRequests:
+          type: integer
+        eventRequests:
+          type: integer
+        lastRequest:
+          $ref: "#/components/schemas/DebugRequest"
+        lastRefreshOk:
+          type: string
+          format: date-time
+        lastRefreshError:
+          type: string
+        lastAvailabilityRefreshOk:
+          type: string
+          format: date-time
+        lastAvailabilityRefreshError:
+          type: string
+        availabilityBits:
+          type: string
+        availabilityStart:
+          type: string
+          format: date-time
+        availabilityEnd:
+          type: string
+          format: date-time
+        availabilityIntervalMinutes:
+          type: integer
+        activeBookingId:
+          type: integer
+        pendingUntil:
+          type: string
+          format: date-time
+        pendingStart:
+          type: string
+          format: date-time
+        pendingEnd:
+          type: string
+          format: date-time
+        pendingBlocks:
+          type: integer
+        lastLedHex:
+          type: array
+          items:
+            type: string
+        lastBlueLeds:
+          type: integer
+        lastRedLeds:
+          type: integer
+        lastDevicePushOk:
+          type: string
+          format: date-time
+        lastDevicePushError:
+          type: string
+        lastDevicePushIp:
+          type: string
+        exactBusyRanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeRange"
+        deviceIps:
+          type: array
+          items:
+            type: string
+    TimeRange:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+    DebugRequest:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        method:
+          type: string
+        action:
+          type: string
+        mac:
+          type: string
+        remoteIp:
+          type: string
+        path:
+          type: string

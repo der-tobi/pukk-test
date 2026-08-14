@@ -17,6 +17,10 @@ coverage/
 *.egg-info/
 test-results/
 
+# Local Go build artifacts
+/pukk-test
+/pukk-test.exe
+
 # External skills — managed via skills-lock.json + .devcontainer/update-skills.sh
 # Entries below are auto-added by: .devcontainer/update-skills.sh add <pkg>
 .claude/skills/.skills-last-updated

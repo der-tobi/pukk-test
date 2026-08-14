@@ -7,6 +7,12 @@ metadata:
 
 The PuKK's LED ring continuously displays a sliding `[now, now+60min]` window. The server must not call the 3V Rooms freebusy API on every device poll ([[tech-stack]]: device default poll is 5s), but a naive "fetch exactly the display window, refresh on a timer" cache has a bug: by the time the next refresh fires, the display window has already slid past what was fetched, so the newly-entering far edge of the ring (the last 5-min slice becoming visible) has no data behind it.
 
+**Current PoC override (2026-08-14):** live testing changed the upstream `freebusy` resolution to `interval=1` minute while keeping the physical display at 12 five-minute LEDs. The cache aggregates one-minute source buckets into rolling five-minute LED slots starting at the current poll time. This avoids a meeting that ended at e.g. 23:15 keeping the last LED red at 23:18. The live refresh cadence is 30 seconds, while the lookahead fetch window remains 75 minutes.
+
+**Exact booking overlay (2026-08-14):** live testing around a `00:00` booking showed `freebusy` could place the first 15 minutes red even when the actual booking should appear later in the rolling hour. The app now uses exact `bookings/find` start/end ranges as the authoritative source for booked LED placement when that lookup succeeds. `freebusy` remains useful as fallback, for diagnostics, and for unknown-data fail-closed behavior.
+
+**LED quantization rule (2026-08-14):** both exact bookings and `freebusy` fallback use the same rolling LED slots: slot 0 is `[now, now+5min)`, slot 1 is `[now+5min, now+10min)`, and so on. Future bookings/freebusy are sampled at each slot's midpoint, not by "any overlap", so a booking at `00:00-00:15` seen at `23:53` renders `GRRRGGGGGGGG`: first LED green, next three LEDs red, remaining LEDs green. Active/current bookings still use overlap so a booking that is already in progress stays red until it actually ends.
+
 **Decision:** decouple the upstream lookahead range from the refresh cadence, and always over-fetch beyond the display window:
 
 ```

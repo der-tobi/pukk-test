@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+**Current PoC override (2026-08-14):** provisional button selections now render red, not blue, in the normal ring. See [ring_poc_simplification.md](ring_poc_simplification.md). The 5s delayed commit, LIFO undo cycle, and max `now+60min` cap below still apply.
+
 Settled via `/grilling` on 2026-08-13 (see `memory/claude/session.md`). Applies equally to extending a current meeting and to building an ad-hoc booking from "now" — same mechanism either way.
 
 **Extension algorithm:** each press either adds `min(15, headroom)` — where headroom is capped by the next meeting's start or the 60-min ring edge, whichever comes first — or, once no headroom remains, starts undoing previous additions in LIFO order back to baseline, then the cycle repeats (extend → extend → ... → undo → undo → ... → extend again). The "+5" example in `project.md` (20 minutes until the next meeting) is just an instance of a capped addition, not a distinct fixed step.

@@ -1,0 +1,617 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+)
+
+type Rooms interface {
+	FreeBusyReader
+	FindBookings(ctx context.Context, start, end time.Time) ([]Booking, error)
+	FindCurrentBooking(ctx context.Context, now time.Time) (*Booking, error)
+	CreateAdHocBooking(ctx context.Context, start, end time.Time) (*Booking, error)
+	ExtendBooking(ctx context.Context, booking Booking, end time.Time) (*Booking, error)
+	CheckInBooking(ctx context.Context, booking Booking) (*Booking, error)
+	ReleaseBooking(ctx context.Context, booking Booking) error
+}
+
+type AppConfig struct {
+	ResourceID           int
+	Now                  func() time.Time
+	CommitWait           time.Duration
+	RoomsRefreshInterval time.Duration
+	DeviceController     DeviceController
+	DevicePushTimeout    time.Duration
+	Logger               Logger
+}
+
+type App struct {
+	rooms Rooms
+	cache *BookingCache
+	cfg   AppConfig
+
+	mu                sync.Mutex
+	active            *Booking
+	exactBusy         []TimeRange
+	exactBusyKnown    bool
+	pending           *pendingSelection
+	pendingGeneration int
+	deviceIPs         map[string]string
+	debug             DebugStatus
+}
+
+type DebugStatus struct {
+	ResourceID                   int          `json:"resourceId"`
+	ServerTime                   time.Time    `json:"serverTime"`
+	TotalRequests                int          `json:"totalRequests"`
+	PollRequests                 int          `json:"pollRequests"`
+	EventRequests                int          `json:"eventRequests"`
+	LastRequest                  DebugRequest `json:"lastRequest"`
+	LastRefreshOK                time.Time    `json:"lastRefreshOk,omitempty"`
+	LastRefreshError             string       `json:"lastRefreshError,omitempty"`
+	LastAvailabilityRefreshOK    time.Time    `json:"lastAvailabilityRefreshOk,omitempty"`
+	LastAvailabilityRefreshError string       `json:"lastAvailabilityRefreshError,omitempty"`
+	AvailabilityBits             string       `json:"availabilityBits,omitempty"`
+	AvailabilityStart            time.Time    `json:"availabilityStart,omitempty"`
+	AvailabilityEnd              time.Time    `json:"availabilityEnd,omitempty"`
+	AvailabilityIntervalMinutes  int          `json:"availabilityIntervalMinutes,omitempty"`
+	ActiveBookingID              int          `json:"activeBookingId,omitempty"`
+	PendingUntil                 time.Time    `json:"pendingUntil,omitempty"`
+	PendingStart                 time.Time    `json:"pendingStart,omitempty"`
+	PendingEnd                   time.Time    `json:"pendingEnd,omitempty"`
+	PendingBlocks                int          `json:"pendingBlocks,omitempty"`
+	LastLEDHex                   []string     `json:"lastLedHex,omitempty"`
+	LastBlueLEDs                 int          `json:"lastBlueLeds,omitempty"`
+	LastRedLEDs                  int          `json:"lastRedLeds,omitempty"`
+	LastDevicePushOK             time.Time    `json:"lastDevicePushOk,omitempty"`
+	LastDevicePushError          string       `json:"lastDevicePushError,omitempty"`
+	LastDevicePushIP             string       `json:"lastDevicePushIp,omitempty"`
+	ExactBusyRanges              []TimeRange  `json:"exactBusyRanges,omitempty"`
+	DeviceIPs                    []string     `json:"deviceIps,omitempty"`
+}
+
+type DebugRequest struct {
+	Time     time.Time `json:"time,omitempty"`
+	Method   string    `json:"method,omitempty"`
+	Action   string    `json:"action,omitempty"`
+	MAC      string    `json:"mac,omitempty"`
+	RemoteIP string    `json:"remoteIp,omitempty"`
+	Path     string    `json:"path,omitempty"`
+}
+
+type pendingSelection struct {
+	active      *Booking
+	baseStart   time.Time
+	baseEnd     time.Time
+	additions   []time.Duration
+	undoing     bool
+	timer       *time.Timer
+	commitAfter time.Duration
+	deadline    time.Time
+}
+
+func NewApp(rooms Rooms, cfg AppConfig) *App {
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	if cfg.CommitWait == 0 {
+		cfg.CommitWait = 5 * time.Second
+	}
+	if cfg.RoomsRefreshInterval == 0 {
+		cfg.RoomsRefreshInterval = 30 * time.Second
+	}
+	if cfg.DevicePushTimeout == 0 {
+		cfg.DevicePushTimeout = 2 * time.Second
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = standardLogger{}
+	}
+	return &App{
+		rooms: rooms,
+		cache: NewBookingCache(rooms, CacheConfig{
+			ResourceID:      cfg.ResourceID,
+			DisplayWindow:   time.Hour,
+			RefreshInterval: 5 * time.Minute,
+			SafetyMargin:    10 * time.Minute,
+			IntervalMinutes: 1,
+		}),
+		cfg:       cfg,
+		deviceIPs: map[string]string{},
+	}
+}
+
+func (a *App) RoomsRefreshInterval() time.Duration {
+	return a.cfg.RoomsRefreshInterval
+}
+
+func (a *App) Refresh(ctx context.Context) error {
+	availabilityErr := a.RefreshAvailability(ctx)
+	activeErr := a.RefreshActiveBooking(ctx)
+	if availabilityErr != nil {
+		return availabilityErr
+	}
+	return activeErr
+}
+
+func (a *App) RefreshAvailability(ctx context.Context) error {
+	now := a.cfg.Now().UTC()
+	err := a.cache.Refresh(ctx, now)
+	a.mu.Lock()
+	window := a.cache.Window()
+	if err != nil {
+		a.debug.LastAvailabilityRefreshError = err.Error()
+		a.debug.LastRefreshError = err.Error()
+	} else {
+		a.debug.LastAvailabilityRefreshOK = now
+		a.debug.LastAvailabilityRefreshError = ""
+		a.debug.AvailabilityBits = window.Data
+		a.debug.AvailabilityStart = window.Start
+		a.debug.AvailabilityEnd = window.End
+		a.debug.AvailabilityIntervalMinutes = window.IntervalMinutes
+	}
+	a.mu.Unlock()
+	return err
+}
+
+func (a *App) RefreshActiveBooking(ctx context.Context) error {
+	now := a.cfg.Now().UTC()
+	windowEnd := now.Add(time.Hour)
+	bookings, err := a.rooms.FindBookings(ctx, now.Add(-24*time.Hour), windowEnd)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err != nil {
+		if a.active == nil || !now.Before(a.active.End) {
+			a.active = nil
+		}
+		a.exactBusy = nil
+		a.exactBusyKnown = false
+		a.debug.LastRefreshError = err.Error()
+		return err
+	}
+
+	active, exactBusy := selectActiveAndExactBusy(bookings, a.cfg.ResourceID, now, windowEnd)
+	if active != nil {
+		a.active = active
+	} else if a.active != nil && now.Before(a.active.End) {
+		active = cloneBooking(a.active)
+		if active.Start.Before(windowEnd) && active.End.After(now) {
+			exactBusy = append(exactBusy, TimeRange{Start: active.Start, End: active.End})
+		}
+	} else {
+		a.active = nil
+	}
+	a.exactBusy = exactBusy
+	a.exactBusyKnown = true
+	a.debug.LastRefreshOK = now
+	a.debug.LastRefreshError = ""
+	return nil
+}
+
+func selectActiveAndExactBusy(bookings []Booking, resourceID int, now, windowEnd time.Time) (*Booking, []TimeRange) {
+	var active *Booking
+	exactBusy := make([]TimeRange, 0, len(bookings))
+	for _, booking := range bookings {
+		if !booking.MatchesResource(resourceID) || !booking.End.After(now) || !booking.Start.Before(windowEnd) {
+			continue
+		}
+		if !now.Before(booking.Start) && now.Before(booking.End) {
+			b := booking
+			active = &b
+		}
+		exactBusy = append(exactBusy, TimeRange{Start: booking.Start, End: booking.End})
+	}
+	return active, exactBusy
+}
+
+func (a *App) RecordRequest(method, path, action, mac, remoteIP string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.debug.TotalRequests++
+	if action == "poll" {
+		a.debug.PollRequests++
+	} else if action != "" {
+		a.debug.EventRequests++
+	}
+	a.debug.LastRequest = DebugRequest{
+		Time:     a.cfg.Now().UTC(),
+		Method:   method,
+		Action:   action,
+		MAC:      mac,
+		RemoteIP: remoteIP,
+		Path:     path,
+	}
+}
+
+func (a *App) DebugStatus() DebugStatus {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	status := a.debug
+	status.ResourceID = a.cfg.ResourceID
+	status.ServerTime = a.cfg.Now().UTC()
+	if a.active != nil {
+		status.ActiveBookingID = a.active.BookingID()
+	}
+	status.ExactBusyRanges = append([]TimeRange(nil), a.exactBusy...)
+	if a.pending != nil {
+		pendingRange := a.pending.Range()
+		status.PendingStart = pendingRange.Start
+		status.PendingEnd = pendingRange.End
+		status.PendingUntil = a.pending.deadline
+		status.PendingBlocks = len(a.pending.additions)
+	}
+	status.DeviceIPs = make([]string, 0, len(a.deviceIPs))
+	for _, ip := range a.deviceIPs {
+		status.DeviceIPs = append(status.DeviceIPs, ip)
+	}
+	return status
+}
+
+func (a *App) Poll(mac, deviceIP string) LEDCommand {
+	now := a.cfg.Now().UTC()
+	a.commitExpiredPending(now)
+	a.mu.Lock()
+	if mac != "" && deviceIP != "" {
+		a.deviceIPs[mac] = deviceIP
+	}
+	active := cloneBooking(a.active)
+	exactBusy := append([]TimeRange(nil), a.exactBusy...)
+	exactBusyKnown := a.exactBusyKnown
+	var provisional []TimeRange
+	if a.pending != nil {
+		if r := a.pending.Range(); !r.Empty() {
+			provisional = []TimeRange{r}
+		}
+	}
+	a.mu.Unlock()
+
+	snapshot := a.cache.Snapshot(now)
+	command := RenderRing(RingInput{
+		Now:         now,
+		Busy:        snapshot.Busy,
+		Known:       snapshot.Known,
+		Active:      active,
+		ExactBusy:   exactBusy,
+		ExactKnown:  exactBusyKnown,
+		Provisional: provisional,
+	})
+	a.recordLEDCommand(command)
+	a.pushLEDCommand(deviceIP, command)
+	return command
+}
+
+func (a *App) recordLEDCommand(command LEDCommand) {
+	hex := make([]string, 0, len(command.LEDValues.Colors))
+	blue := 0
+	red := 0
+	for _, color := range command.LEDValues.Colors {
+		value := color.Hex()
+		hex = append(hex, value)
+		switch value {
+		case "#006DFF":
+			blue++
+		case BusyRed:
+			red++
+		}
+	}
+	a.mu.Lock()
+	a.debug.LastLEDHex = hex
+	a.debug.LastBlueLEDs = blue
+	a.debug.LastRedLEDs = red
+	a.mu.Unlock()
+}
+
+func (a *App) pushLEDCommand(deviceIP string, command LEDCommand) {
+	if a.cfg.DeviceController == nil || deviceIP == "" {
+		return
+	}
+	values := command.LEDValues
+	timeout := a.cfg.DevicePushTimeout
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		err := a.cfg.DeviceController.SetIndividualLEDs(ctx, deviceIP, values)
+		now := a.cfg.Now().UTC()
+		a.mu.Lock()
+		a.debug.LastDevicePushIP = deviceIP
+		if err != nil {
+			a.debug.LastDevicePushError = err.Error()
+			a.mu.Unlock()
+			a.cfg.Logger.Printf("PuKK local LED push to %s failed: %v", deviceIP, err)
+			return
+		}
+		a.debug.LastDevicePushOK = now
+		a.debug.LastDevicePushError = ""
+		a.mu.Unlock()
+	}()
+}
+
+func (a *App) HandleEvent(ctx context.Context, action string) error {
+	switch action {
+	case "short_press", "double_press", "multiple_press":
+		a.handleShortPress()
+		return nil
+	case "nfc":
+		return a.handleNFC(ctx)
+	case "long_press_3s":
+		return a.handleCheckout(ctx)
+	default:
+		return nil
+	}
+}
+
+func (a *App) handleShortPress() {
+	now := a.cfg.Now().UTC()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.pending == nil {
+		baseStart := now
+		baseEnd := now
+		var active *Booking
+		if a.active != nil && !now.Before(a.active.Start) && now.Before(a.active.End) {
+			active = cloneBooking(a.active)
+			baseStart = a.active.End
+			baseEnd = a.active.End
+		}
+		a.pending = &pendingSelection{
+			active:      active,
+			baseStart:   baseStart,
+			baseEnd:     baseEnd,
+			commitAfter: a.cfg.CommitWait,
+		}
+	}
+
+	a.pending.Step(a.maxSelectableEnd(now, a.pending.baseEnd))
+	a.resetPendingTimerLocked(now)
+}
+
+func (a *App) maxSelectableEnd(now, baseEnd time.Time) time.Time {
+	windowEnd := now.Add(time.Hour)
+	snapshot := a.cache.Snapshot(now)
+	interval := 5 * time.Minute
+	for i := 0; i < 12; i++ {
+		slotStart := now.Add(time.Duration(i) * interval)
+		if slotStart.Before(baseEnd) {
+			continue
+		}
+		if snapshot.Busy[i] {
+			if slotStart.Before(windowEnd) {
+				return slotStart
+			}
+			break
+		}
+	}
+	return windowEnd
+}
+
+func (a *App) resetPendingTimerLocked(now time.Time) {
+	if a.pending == nil || a.pending.commitAfter <= 0 {
+		return
+	}
+	a.pendingGeneration++
+	generation := a.pendingGeneration
+	a.pending.deadline = now.Add(a.pending.commitAfter)
+	if a.pending.timer != nil {
+		a.pending.timer.Stop()
+	}
+	a.pending.timer = time.AfterFunc(a.pending.commitAfter, func() {
+		if err := a.CommitPendingGeneration(context.Background(), generation); err != nil {
+			a.cfg.Logger.Printf("commit pending selection failed: %v", err)
+		}
+	})
+}
+
+func (p *pendingSelection) Step(maxEnd time.Time) {
+	current := p.CurrentEnd()
+	if p.undoing || !current.Before(maxEnd) {
+		p.undoing = true
+		if len(p.additions) > 0 {
+			p.additions = p.additions[:len(p.additions)-1]
+		}
+		if len(p.additions) == 0 {
+			p.undoing = false
+		}
+		return
+	}
+
+	delta := 15 * time.Minute
+	if remaining := maxEnd.Sub(current); remaining < delta {
+		delta = remaining
+	}
+	if delta > 0 {
+		p.additions = append(p.additions, delta)
+	}
+}
+
+func (p *pendingSelection) CurrentEnd() time.Time {
+	end := p.baseEnd
+	for _, add := range p.additions {
+		end = end.Add(add)
+	}
+	return end
+}
+
+func (p *pendingSelection) Range() TimeRange {
+	return TimeRange{Start: p.baseStart, End: p.CurrentEnd()}
+}
+
+func (a *App) CommitPending(ctx context.Context) error {
+	return a.CommitPendingGeneration(ctx, 0)
+}
+
+func (a *App) CommitPendingGeneration(ctx context.Context, generation int) error {
+	pending := a.takePendingGeneration(generation)
+	if pending == nil || len(pending.additions) == 0 {
+		return nil
+	}
+	a.applyOptimisticPending(pending)
+	return a.commitSelection(ctx, pending)
+}
+
+func (a *App) commitExpiredPending(now time.Time) {
+	pending := a.takeExpiredPending(now)
+	if pending == nil || len(pending.additions) == 0 {
+		return
+	}
+	a.applyOptimisticPending(pending)
+	go func() {
+		if err := a.commitSelection(context.Background(), pending); err != nil {
+			a.cfg.Logger.Printf("expired pending selection commit failed: %v", err)
+		}
+	}()
+}
+
+func (a *App) takeExpiredPending(now time.Time) *pendingSelection {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.pending == nil || a.pending.deadline.IsZero() || now.Before(a.pending.deadline) {
+		return nil
+	}
+	pending := a.pending
+	a.pending = nil
+	if pending.timer != nil {
+		pending.timer.Stop()
+	}
+	return pending
+}
+
+func (a *App) takePendingGeneration(generation int) *pendingSelection {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if generation != 0 && generation != a.pendingGeneration {
+		return nil
+	}
+	pending := a.pending
+	a.pending = nil
+	if pending != nil && pending.timer != nil {
+		pending.timer.Stop()
+	}
+	return pending
+}
+
+func (a *App) applyOptimisticPending(pending *pendingSelection) {
+	optimistic := pending.optimisticBooking()
+	a.mu.Lock()
+	a.active = optimistic
+	a.mu.Unlock()
+}
+
+func (a *App) commitSelection(ctx context.Context, pending *pendingSelection) error {
+	end := pending.CurrentEnd()
+	var err error
+	var committed *Booking
+	if pending.active != nil {
+		committed, err = a.rooms.ExtendBooking(ctx, *pending.active, end)
+	} else {
+		committed, err = a.rooms.CreateAdHocBooking(ctx, pending.baseStart, end)
+	}
+	if err != nil {
+		a.revertPending(pending)
+		return err
+	}
+	if committed == nil {
+		committed = pending.optimisticBooking()
+	}
+	if committed.Start.IsZero() {
+		committed.Start = pending.bookingStart()
+	}
+	if committed.End.IsZero() {
+		committed.End = end
+	}
+	a.mu.Lock()
+	a.active = committed
+	a.mu.Unlock()
+	if err := a.Refresh(ctx); err != nil {
+		a.cfg.Logger.Printf("post-commit Rooms refresh failed; keeping local booking state for display: %v", err)
+	}
+	return nil
+}
+
+func (a *App) revertPending(pending *pendingSelection) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if pending.active != nil {
+		a.active = cloneBooking(pending.active)
+		return
+	}
+	if a.active != nil && a.active.Start.Equal(pending.baseStart) && a.active.End.Equal(pending.CurrentEnd()) {
+		a.active = nil
+	}
+}
+
+func (p *pendingSelection) optimisticBooking() *Booking {
+	checkinConfirmed := true
+	id := 0
+	if p.active != nil {
+		checkinConfirmed = p.active.CheckinConfirmed
+		id = p.active.BookingID()
+	}
+	return &Booking{
+		ID:               id,
+		Start:            p.bookingStart(),
+		End:              p.CurrentEnd(),
+		CheckinConfirmed: checkinConfirmed,
+	}
+}
+
+func (p *pendingSelection) activeBookingID() int {
+	if p.active == nil {
+		return 0
+	}
+	return p.active.BookingID()
+}
+
+func (p *pendingSelection) bookingStart() time.Time {
+	if p.active != nil && !p.active.Start.IsZero() {
+		return p.active.Start
+	}
+	return p.baseStart
+}
+
+func (a *App) handleNFC(ctx context.Context) error {
+	a.mu.Lock()
+	active := cloneBooking(a.active)
+	a.mu.Unlock()
+	if active == nil || active.CheckinConfirmed {
+		return nil
+	}
+	booking, err := a.rooms.CheckInBooking(ctx, *active)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.active = booking
+	a.mu.Unlock()
+	_ = a.Refresh(ctx)
+	return nil
+}
+
+func (a *App) handleCheckout(ctx context.Context) error {
+	a.mu.Lock()
+	active := cloneBooking(a.active)
+	a.mu.Unlock()
+	if active == nil {
+		return nil
+	}
+	if err := a.rooms.ReleaseBooking(ctx, *active); err != nil {
+		return err
+	}
+	return a.Refresh(ctx)
+}
+
+func cloneBooking(b *Booking) *Booking {
+	if b == nil {
+		return nil
+	}
+	c := *b
+	return &c
+}
+
+func (a *App) ValidateReady() error {
+	if a.rooms == nil {
+		return errors.New("rooms client is required")
+	}
+	return nil
+}
