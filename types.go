@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -61,6 +62,49 @@ type Booking struct {
 	CheckinConfirmed bool      `json:"checkinConfirmed"`
 }
 
+func (b *Booking) UnmarshalJSON(data []byte) error {
+	type bookingAlias Booking
+	var raw bookingAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*b = Booking(raw)
+
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+
+	if b.ID == 0 {
+		b.ID = firstJSONInt(fields, "id", "Id", "ID")
+	}
+	if b.ReservationID == 0 {
+		b.ReservationID = firstJSONInt(fields, "reservationId", "ReservationId", "ReservationID")
+	}
+	if b.ResourceID == 0 {
+		b.ResourceID = firstJSONInt(fields, "resourceId", "ResourceId", "ResourceID")
+	}
+	if b.RessourceID == 0 {
+		b.RessourceID = firstJSONInt(fields, "ressourceId", "RessourceId", "RessourceID")
+	}
+	if b.ResourceID == 0 && b.RessourceID == 0 {
+		b.RessourceID = nestedJSONInt(fields, "resource", "Resource", "ressource", "Ressource")
+	}
+	if b.Title == "" {
+		b.Title = firstJSONString(fields, "title", "Title")
+	}
+	if b.Start.IsZero() {
+		b.Start = firstJSONTime(fields, "start", "Start", "begin", "Begin", "beginn", "Beginn")
+	}
+	if b.End.IsZero() {
+		b.End = firstJSONTime(fields, "end", "End", "ende", "Ende")
+	}
+	if !b.CheckinConfirmed {
+		b.CheckinConfirmed = firstJSONBool(fields, "checkinConfirmed", "CheckinConfirmed")
+	}
+	return nil
+}
+
 func (b Booking) BookingID() int {
 	if b.ID != 0 {
 		return b.ID
@@ -83,4 +127,96 @@ func (r TimeRange) Empty() bool {
 
 type Logger interface {
 	Printf(format string, args ...any)
+}
+
+func firstJSONInt(fields map[string]json.RawMessage, names ...string) int {
+	for _, name := range names {
+		value, ok := fields[name]
+		if !ok || string(value) == "null" {
+			continue
+		}
+		var number int
+		if err := json.Unmarshal(value, &number); err == nil {
+			return number
+		}
+	}
+	return 0
+}
+
+func nestedJSONInt(fields map[string]json.RawMessage, names ...string) int {
+	for _, name := range names {
+		value, ok := fields[name]
+		if !ok || string(value) == "null" {
+			continue
+		}
+		nested := map[string]json.RawMessage{}
+		if err := json.Unmarshal(value, &nested); err != nil {
+			continue
+		}
+		if id := firstJSONInt(nested, "id", "Id", "ID"); id != 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+func firstJSONString(fields map[string]json.RawMessage, names ...string) string {
+	for _, name := range names {
+		value, ok := fields[name]
+		if !ok || string(value) == "null" {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(value, &text); err == nil {
+			return text
+		}
+	}
+	return ""
+}
+
+func firstJSONBool(fields map[string]json.RawMessage, names ...string) bool {
+	for _, name := range names {
+		value, ok := fields[name]
+		if !ok || string(value) == "null" {
+			continue
+		}
+		var flag bool
+		if err := json.Unmarshal(value, &flag); err == nil {
+			return flag
+		}
+	}
+	return false
+}
+
+func firstJSONTime(fields map[string]json.RawMessage, names ...string) time.Time {
+	for _, name := range names {
+		value, ok := fields[name]
+		if !ok || string(value) == "null" {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(value, &text); err != nil || text == "" {
+			continue
+		}
+		if parsed, ok := parseRoomsJSONTime(text); ok {
+			return parsed
+		}
+	}
+	return time.Time{}
+}
+
+func parseRoomsJSONTime(text string) (time.Time, bool) {
+	if parsed, err := time.Parse(time.RFC3339Nano, text); err == nil {
+		return parsed, true
+	}
+	for _, layout := range []string{
+		"2006-01-02T15:04:05.9999999",
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02T15:04:05",
+	} {
+		if parsed, err := time.ParseInLocation(layout, text, time.UTC); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
 }

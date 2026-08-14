@@ -37,6 +37,7 @@ Implemented on 2026-08-13 as a single Go module in `/workspaces/pukk-test`.
   - extend: v1 `PUT /bookings/{id}?end=...`
   - checkin: v1 `PUT /bookings/{id}/checkin?pin=...`
   - checkout/release: v1 `cancheckout`, then `checkout?sendMail=false` or `release`
+- The Rooms booking decoder accepts the documented `BookingDto` `Begin`/`End` fields, the app's internal `start`/`end` names, and `RessourceId`/`resourceId` spellings. This prevents exact bookings from being discarded while `freebusy` still shows broad busy intervals.
 
 ## Verification
 

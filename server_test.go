@@ -139,6 +139,32 @@ func TestPollRendersFutureHalfHourBookingAfterTwentyFreeMinutes(t *testing.T) {
 	assertRingPattern(t, command, "GGGGRRRRRRGG")
 }
 
+func TestPollRendersFutureHalfHourBookingAfterFourteenFreeMinutes(t *testing.T) {
+	now := time.Date(2026, 8, 14, 1, 1, 0, 0, time.UTC)
+	rooms := &recordingRooms{
+		freeBusy: "011000000000000",
+		bookings: []Booking{{
+			ID:               7,
+			ResourceID:       44,
+			Start:            time.Date(2026, 8, 14, 1, 15, 0, 0, time.UTC),
+			End:              time.Date(2026, 8, 14, 1, 45, 0, 0, time.UTC),
+			CheckinConfirmed: true,
+		}},
+	}
+	app := NewApp(rooms, AppConfig{
+		ResourceID: 44,
+		Now:        func() time.Time { return now },
+		Logger:     discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+
+	command := app.Poll("abc", "192.0.2.10")
+
+	assertRingPattern(t, command, "GGGRRRRRRGGG")
+}
+
 func TestNewAppUsesThirtySecondPoCRoomsRefreshInterval(t *testing.T) {
 	app := NewApp(&recordingRooms{}, AppConfig{ResourceID: 44, Logger: discardLogger{}})
 

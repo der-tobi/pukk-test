@@ -77,11 +77,11 @@ func TestRoomsClientFindBookingsUsesResourceAndWindowFilters(t *testing.T) {
 		case "/default/api/v2.0/bookings/find":
 			bookingAuth = r.Header.Get("Authorization")
 			bookingQuery = r.URL.Query()
-			_ = json.NewEncoder(w).Encode([]Booking{{
-				ID:         7,
-				ResourceID: 44,
-				Start:      time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC),
-				End:        time.Date(2026, 8, 14, 0, 15, 0, 0, time.UTC),
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"Id":          7,
+				"RessourceId": 44,
+				"Begin":       "2026-08-14T00:00:00Z",
+				"End":         "2026-08-14T00:15:00Z",
 			}})
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
@@ -114,5 +114,62 @@ func TestRoomsClientFindBookingsUsesResourceAndWindowFilters(t *testing.T) {
 	}
 	if len(bookings) != 1 || bookings[0].BookingID() != 7 {
 		t.Fatalf("bookings = %#v", bookings)
+	}
+	if got := bookings[0].Start; !got.Equal(time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("booking start = %s", got)
+	}
+}
+
+func TestRoomsClientFindBookingsDecodesPagedPascalGermanFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "token-1"})
+		case "/default/api/v2.0/bookings/find":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Items": []map[string]any{{
+					"Id":               7,
+					"RessourceId":      44,
+					"Beginn":           "2026-08-14T01:15:00Z",
+					"Ende":             "2026-08-14T01:45:00Z",
+					"CheckinConfirmed": true,
+				}},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewRoomsHTTPClient(RoomsConfig{
+		AuthBaseURL: server.URL,
+		APIBaseURL:  server.URL,
+		Mandator:    "default",
+		ResourceID:  44,
+		User:        "tobiapi4",
+		Password:    "secret",
+		HTTPClient:  server.Client(),
+	})
+
+	bookings, err := client.FindBookings(
+		context.Background(),
+		time.Date(2026, 8, 14, 1, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 14, 2, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("FindBookings returned error: %v", err)
+	}
+
+	if len(bookings) != 1 {
+		t.Fatalf("bookings len = %d, want 1: %#v", len(bookings), bookings)
+	}
+	if !bookings[0].MatchesResource(44) {
+		t.Fatalf("booking resource ids = resourceId %d, ressourceId %d", bookings[0].ResourceID, bookings[0].RessourceID)
+	}
+	if got := bookings[0].Start; !got.Equal(time.Date(2026, 8, 14, 1, 15, 0, 0, time.UTC)) {
+		t.Fatalf("booking start = %s", got)
+	}
+	if got := bookings[0].End; !got.Equal(time.Date(2026, 8, 14, 1, 45, 0, 0, time.UTC)) {
+		t.Fatalf("booking end = %s", got)
 	}
 }
