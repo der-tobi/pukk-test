@@ -18,13 +18,14 @@ type Rooms interface {
 }
 
 type AppConfig struct {
-	ResourceID           int
-	Now                  func() time.Time
-	CommitWait           time.Duration
-	RoomsRefreshInterval time.Duration
-	DeviceController     DeviceController
-	DevicePushTimeout    time.Duration
-	Logger               Logger
+	ResourceID                int
+	Now                       func() time.Time
+	CommitWait                time.Duration
+	RoomsRefreshInterval      time.Duration
+	DeviceController          DeviceController
+	DevicePushTimeout         time.Duration
+	ButtonAnimationFrameDelay time.Duration
+	Logger                    Logger
 }
 
 type App struct {
@@ -90,6 +91,7 @@ type pendingSelection struct {
 	timer       *time.Timer
 	commitAfter time.Duration
 	deadline    time.Time
+	deviceIP    string
 }
 
 func NewApp(rooms Rooms, cfg AppConfig) *App {
@@ -104,6 +106,9 @@ func NewApp(rooms Rooms, cfg AppConfig) *App {
 	}
 	if cfg.DevicePushTimeout == 0 {
 		cfg.DevicePushTimeout = 2 * time.Second
+	}
+	if cfg.ButtonAnimationFrameDelay == 0 {
+		cfg.ButtonAnimationFrameDelay = 100 * time.Millisecond
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = standardLogger{}
@@ -266,8 +271,15 @@ func (a *App) Poll(mac, deviceIP string) LEDCommand {
 	}
 	a.mu.Unlock()
 
+	command := a.renderRing(now, active, exactBusy, exactBusyKnown, provisional)
+	a.recordLEDCommand(command)
+	a.pushLEDCommand(deviceIP, command)
+	return command
+}
+
+func (a *App) renderRing(now time.Time, active *Booking, exactBusy []TimeRange, exactBusyKnown bool, provisional []TimeRange) LEDCommand {
 	snapshot := a.cache.Snapshot(now)
-	command := RenderRing(RingInput{
+	return RenderRing(RingInput{
 		Now:         now,
 		Busy:        snapshot.Busy,
 		Known:       snapshot.Known,
@@ -276,9 +288,6 @@ func (a *App) Poll(mac, deviceIP string) LEDCommand {
 		ExactKnown:  exactBusyKnown,
 		Provisional: provisional,
 	})
-	a.recordLEDCommand(command)
-	a.pushLEDCommand(deviceIP, command)
-	return command
 }
 
 func (a *App) recordLEDCommand(command LEDCommand) {
@@ -289,7 +298,7 @@ func (a *App) recordLEDCommand(command LEDCommand) {
 		value := color.Hex()
 		hex = append(hex, value)
 		switch value {
-		case "#006DFF":
+		case ProvisionalBlue:
 			blue++
 		case BusyRed:
 			red++
@@ -311,26 +320,37 @@ func (a *App) pushLEDCommand(deviceIP string, command LEDCommand) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		err := a.cfg.DeviceController.SetIndividualLEDs(ctx, deviceIP, values)
-		now := a.cfg.Now().UTC()
-		a.mu.Lock()
-		a.debug.LastDevicePushIP = deviceIP
-		if err != nil {
-			a.debug.LastDevicePushError = err.Error()
-			a.mu.Unlock()
+		if err := a.pushLEDValues(ctx, deviceIP, values); err != nil {
 			a.cfg.Logger.Printf("PuKK local LED push to %s failed: %v", deviceIP, err)
 			return
 		}
-		a.debug.LastDevicePushOK = now
-		a.debug.LastDevicePushError = ""
-		a.mu.Unlock()
 	}()
 }
 
-func (a *App) HandleEvent(ctx context.Context, action string) error {
+func (a *App) pushLEDValues(ctx context.Context, deviceIP string, values LEDValues) error {
+	if a.cfg.DeviceController == nil || deviceIP == "" {
+		return nil
+	}
+	err := a.cfg.DeviceController.SetIndividualLEDs(ctx, deviceIP, values)
+	now := a.cfg.Now().UTC()
+	a.mu.Lock()
+	a.debug.LastDevicePushIP = deviceIP
+	if err != nil {
+		a.debug.LastDevicePushError = err.Error()
+		a.mu.Unlock()
+		return err
+	}
+	a.debug.LastDevicePushOK = now
+	a.debug.LastDevicePushError = ""
+	a.mu.Unlock()
+	a.recordLEDCommand(LEDCommand{Command: "set_leds_individual", LEDValues: values})
+	return nil
+}
+
+func (a *App) HandleEvent(ctx context.Context, action, mac, deviceIP string) error {
 	switch action {
 	case "short_press", "double_press", "multiple_press":
-		a.handleShortPress()
+		a.handleShortPressForDevice(mac, deviceIP)
 		return nil
 	case "nfc":
 		return a.handleNFC(ctx)
@@ -342,9 +362,30 @@ func (a *App) HandleEvent(ctx context.Context, action string) error {
 }
 
 func (a *App) handleShortPress() {
+	a.handleShortPressForDevice("", "")
+}
+
+func (a *App) handleShortPressForDevice(mac, deviceIP string) {
 	now := a.cfg.Now().UTC()
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	if mac != "" && deviceIP != "" {
+		a.deviceIPs[mac] = deviceIP
+	}
+	if deviceIP == "" && mac != "" {
+		deviceIP = a.deviceIPs[mac]
+	}
+
+	active := cloneBooking(a.active)
+	exactBusy := append([]TimeRange(nil), a.exactBusy...)
+	exactBusyKnown := a.exactBusyKnown
+	var beforeProvisional []TimeRange
+	var beforeEnd time.Time
+	if a.pending != nil {
+		beforeEnd = a.pending.CurrentEnd()
+		if r := a.pending.Range(); !r.Empty() {
+			beforeProvisional = []TimeRange{r}
+		}
+	}
 
 	if a.pending == nil {
 		baseStart := now
@@ -361,10 +402,29 @@ func (a *App) handleShortPress() {
 			baseEnd:     baseEnd,
 			commitAfter: a.cfg.CommitWait,
 		}
+		beforeEnd = baseEnd
+	}
+	if deviceIP != "" {
+		a.pending.deviceIP = deviceIP
 	}
 
 	a.pending.Step(a.maxSelectableEnd(now, a.pending.baseEnd))
 	a.resetPendingTimerLocked(now)
+	generation := a.pendingGeneration
+	afterEnd := a.pending.CurrentEnd()
+	var afterProvisional []TimeRange
+	if r := a.pending.Range(); !r.Empty() {
+		afterProvisional = []TimeRange{r}
+	}
+	a.mu.Unlock()
+
+	before := a.renderRing(now, active, exactBusy, exactBusyKnown, beforeProvisional)
+	after := a.renderRing(now, active, exactBusy, exactBusyKnown, afterProvisional)
+	indexes := changedLEDIndexes(before, after)
+	if afterEnd.Before(beforeEnd) {
+		reverseInts(indexes)
+	}
+	a.animateLEDTransitionAsync(deviceIP, generation, before, after, indexes)
 }
 
 func (a *App) maxSelectableEnd(now, baseEnd time.Time) time.Time {
@@ -442,53 +502,60 @@ func (a *App) CommitPending(ctx context.Context) error {
 }
 
 func (a *App) CommitPendingGeneration(ctx context.Context, generation int) error {
-	pending := a.takePendingGeneration(generation)
+	pending, animationGeneration := a.takePendingGeneration(generation)
 	if pending == nil || len(pending.additions) == 0 {
 		return nil
 	}
 	a.applyOptimisticPending(pending)
+	a.animatePendingCommit(pending, animationGeneration)
 	return a.commitSelection(ctx, pending)
 }
 
 func (a *App) commitExpiredPending(now time.Time) {
-	pending := a.takeExpiredPending(now)
+	pending, animationGeneration := a.takeExpiredPending(now)
 	if pending == nil || len(pending.additions) == 0 {
 		return
 	}
 	a.applyOptimisticPending(pending)
 	go func() {
+		a.animatePendingCommit(pending, animationGeneration)
 		if err := a.commitSelection(context.Background(), pending); err != nil {
 			a.cfg.Logger.Printf("expired pending selection commit failed: %v", err)
 		}
 	}()
 }
 
-func (a *App) takeExpiredPending(now time.Time) *pendingSelection {
+func (a *App) takeExpiredPending(now time.Time) (*pendingSelection, int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.pending == nil || a.pending.deadline.IsZero() || now.Before(a.pending.deadline) {
-		return nil
+		return nil, 0
 	}
 	pending := a.pending
 	a.pending = nil
 	if pending.timer != nil {
 		pending.timer.Stop()
 	}
-	return pending
+	a.pendingGeneration++
+	return pending, a.pendingGeneration
 }
 
-func (a *App) takePendingGeneration(generation int) *pendingSelection {
+func (a *App) takePendingGeneration(generation int) (*pendingSelection, int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if generation != 0 && generation != a.pendingGeneration {
-		return nil
+		return nil, 0
 	}
 	pending := a.pending
 	a.pending = nil
 	if pending != nil && pending.timer != nil {
 		pending.timer.Stop()
 	}
-	return pending
+	if pending != nil {
+		a.pendingGeneration++
+		return pending, a.pendingGeneration
+	}
+	return nil, 0
 }
 
 func (a *App) applyOptimisticPending(pending *pendingSelection) {
@@ -568,6 +635,81 @@ func (p *pendingSelection) bookingStart() time.Time {
 		return p.active.Start
 	}
 	return p.baseStart
+}
+
+func (a *App) animatePendingCommit(pending *pendingSelection, generation int) {
+	if pending.deviceIP == "" {
+		return
+	}
+	now := a.cfg.Now().UTC()
+	beforeActive := cloneBooking(pending.active)
+	before := a.renderRing(now, beforeActive, nil, false, []TimeRange{pending.Range()})
+	after := a.renderRing(now, pending.optimisticBooking(), nil, false, nil)
+	indexes := changedLEDIndexes(before, after)
+	a.animateLEDTransition(pending.deviceIP, generation, before, after, indexes)
+}
+
+func (a *App) animateLEDTransitionAsync(deviceIP string, generation int, before, after LEDCommand, indexes []int) {
+	if deviceIP == "" || len(indexes) == 0 {
+		return
+	}
+	go a.animateLEDTransition(deviceIP, generation, before, after, indexes)
+}
+
+func (a *App) animateLEDTransition(deviceIP string, generation int, before, after LEDCommand, indexes []int) {
+	if a.cfg.DeviceController == nil || deviceIP == "" || len(indexes) == 0 {
+		return
+	}
+	colors := append([]LEDColor(nil), before.LEDValues.Colors...)
+	for i, idx := range indexes {
+		if !a.isAnimationGenerationCurrent(generation) {
+			return
+		}
+		if idx < 0 || idx >= len(colors) || idx >= len(after.LEDValues.Colors) {
+			continue
+		}
+		colors[idx] = after.LEDValues.Colors[idx]
+		values := LEDValues{
+			Colors:     append([]LEDColor(nil), colors...),
+			DurationMS: after.LEDValues.DurationMS,
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), a.cfg.DevicePushTimeout)
+		err := a.pushLEDValues(ctx, deviceIP, values)
+		cancel()
+		if err != nil {
+			a.cfg.Logger.Printf("PuKK local LED animation push to %s failed: %v", deviceIP, err)
+			return
+		}
+		if i < len(indexes)-1 && a.cfg.ButtonAnimationFrameDelay > 0 {
+			time.Sleep(a.cfg.ButtonAnimationFrameDelay)
+		}
+	}
+}
+
+func (a *App) isAnimationGenerationCurrent(generation int) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return generation != 0 && generation == a.pendingGeneration
+}
+
+func changedLEDIndexes(before, after LEDCommand) []int {
+	limit := len(before.LEDValues.Colors)
+	if len(after.LEDValues.Colors) < limit {
+		limit = len(after.LEDValues.Colors)
+	}
+	indexes := make([]int, 0, limit)
+	for i := 0; i < limit; i++ {
+		if before.LEDValues.Colors[i] != after.LEDValues.Colors[i] {
+			indexes = append(indexes, i)
+		}
+	}
+	return indexes
+}
+
+func reverseInts(values []int) {
+	for i, j := 0, len(values)-1; i < j; i, j = i+1, j-1 {
+		values[i], values[j] = values[j], values[i]
+	}
 }
 
 func (a *App) handleNFC(ctx context.Context) error {

@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**Current PoC override (2026-08-14):** live-device testing simplified the normal poll-rendered ring to red/green only. See [ring_poc_simplification.md](ring_poc_simplification.md). The orientation below still applies, but the current implementation now uses a rolling window from the current poll time instead of wall-clock-aligned buckets. Blue/orange/violet/gradient/pulsing colors are disabled in the current implementation.
+**Current PoC override (2026-08-14):** live-device testing simplified booked/free ring state to red/green only. See [ring_poc_simplification.md](ring_poc_simplification.md). The orientation below still applies, but the current implementation now uses a rolling window from the current poll time instead of wall-clock-aligned buckets. Orange/violet/gradient/pulsing colors are disabled in the current implementation. Pending button selections are the exception: they render blue and animate through the device-local REST push path.
 
 **Live-device transport update (2026-08-14):** the server still returns a poll command, but also pushes the ambient red/green ring through the PuKK local REST API on every poll. See [device_led_push.md](device_led_push.md). This supersedes the older assumption below that the regular ambient ring state is delivered purely through poll responses.
 

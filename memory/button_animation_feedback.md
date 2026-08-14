@@ -5,7 +5,7 @@ metadata:
   type: feedback
 ---
 
-On 2026-08-14, after the red/green rolling ring and Rooms extension calls worked on the live PuKK, the user requested richer immediate feedback for button presses.
+On 2026-08-14, after the red/green rolling ring and Rooms extension calls worked on the live PuKK, the user requested richer immediate feedback for button presses. Implemented in the Go app after baseline commit `7fdeac9`.
 
 Desired active-booking scenario:
 
@@ -18,7 +18,8 @@ Desired active-booking scenario:
 
 Implementation direction:
 
-- Keep the normal ambient/poll-rendered ring red/green only.
-- Implement this as a device-local REST animation using the latest PuKK IP observed from poll requests.
-- Pass the event `mac` into app event handling so a POST button event can resolve the last known device IP for that PuKK.
-- Reuse the existing pending-selection generation token so stale animations stop when a later press changes the pending selection.
+- Normal booked/free time remains red/green.
+- Pending button selections render blue during the 5-second commit window so normal polls do not overwrite the temporary feedback.
+- Button press frames are also pushed immediately through the PuKK device-local REST API using the POST event's source IP, with fallback to the latest PuKK IP observed from poll requests for the same `mac`.
+- The existing pending-selection generation token cancels stale animations when a later press changes the pending selection.
+- The default frame delay is 100ms; tests override it to 1ms.

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -62,10 +63,10 @@ func TestPollPushesIndividualLEDsToDeviceLocalAPI(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("device controller was not called")
 	}
-	if device.ip != "192.0.2.10" {
-		t.Fatalf("device ip = %q, want 192.0.2.10", device.ip)
+	if got := device.lastIP(); got != "192.0.2.10" {
+		t.Fatalf("device ip = %q, want 192.0.2.10", got)
 	}
-	if got := commandFromLEDValues(device.values); !sameLEDCommand(got, command) {
+	if got := commandFromLEDValues(device.lastValues()); !sameLEDCommand(got, command) {
 		t.Fatalf("pushed command = %#v, want %#v", got, command)
 	}
 }
@@ -208,15 +209,15 @@ func TestShortPressCreatesAndCommitsAdHocBooking(t *testing.T) {
 		t.Fatalf("status = %d, body %s", rr.Code, rr.Body.String())
 	}
 	command := app.Poll("abc", "192.0.2.10")
-	assertHex(t, command.LEDValues.Colors[0], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[1], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[2], "#FF0000")
+	assertHex(t, command.LEDValues.Colors[0], ProvisionalBlue)
+	assertHex(t, command.LEDValues.Colors[1], ProvisionalBlue)
+	assertHex(t, command.LEDValues.Colors[2], ProvisionalBlue)
 	status := app.DebugStatus()
-	if status.LastBlueLEDs != 0 {
-		t.Fatalf("LastBlueLEDs = %d, want 0 after provisional short press", status.LastBlueLEDs)
+	if status.LastBlueLEDs != 3 {
+		t.Fatalf("LastBlueLEDs = %d, want 3 after provisional short press", status.LastBlueLEDs)
 	}
-	if status.LastRedLEDs != 3 {
-		t.Fatalf("LastRedLEDs = %d, want 3 after one short press", status.LastRedLEDs)
+	if status.LastRedLEDs != 0 {
+		t.Fatalf("LastRedLEDs = %d, want 0 after one provisional short press", status.LastRedLEDs)
 	}
 
 	if err := app.CommitPending(context.Background()); err != nil {
@@ -227,7 +228,7 @@ func TestShortPressCreatesAndCommitsAdHocBooking(t *testing.T) {
 	}
 }
 
-func TestShortPressesShowFifteenMinuteRedStepsOnEmptyResource(t *testing.T) {
+func TestShortPressesShowFifteenMinuteBlueStepsOnEmptyResource(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	rooms := &recordingRooms{freeBusy: "000000000000000"}
 	app := NewApp(rooms, AppConfig{
@@ -241,13 +242,13 @@ func TestShortPressesShowFifteenMinuteRedStepsOnEmptyResource(t *testing.T) {
 	}
 
 	app.handleShortPress()
-	assertRedPrefix(t, app.Poll("abc", "192.0.2.10"), 3)
+	assertColorPrefix(t, app.Poll("abc", "192.0.2.10"), 3, ProvisionalBlue)
 
 	app.handleShortPress()
-	assertRedPrefix(t, app.Poll("abc", "192.0.2.10"), 6)
+	assertColorPrefix(t, app.Poll("abc", "192.0.2.10"), 6, ProvisionalBlue)
 
 	app.handleShortPress()
-	assertRedPrefix(t, app.Poll("abc", "192.0.2.10"), 9)
+	assertColorPrefix(t, app.Poll("abc", "192.0.2.10"), 9, ProvisionalBlue)
 }
 
 func TestActiveBookingPressExtendsToVisibleHourEdgeWhenOnlyTenMinutesFree(t *testing.T) {
@@ -273,7 +274,8 @@ func TestActiveBookingPressExtendsToVisibleHourEdgeWhenOnlyTenMinutesFree(t *tes
 	}
 
 	app.handleShortPress()
-	assertRedPrefix(t, app.Poll("abc", "192.0.2.10"), 12)
+	command := app.Poll("abc", "192.0.2.10")
+	assertRingPattern(t, command, "RRRRRRRRRRBB")
 
 	if err := app.CommitPending(context.Background()); err != nil {
 		t.Fatalf("CommitPending returned error: %v", err)
@@ -316,6 +318,125 @@ func TestStaleButtonTimerCannotCommitAfterLaterPress(t *testing.T) {
 	}
 	if rooms.created.Start != now || rooms.created.End != now.Add(30*time.Minute) {
 		t.Fatalf("created range = %s..%s, want 30 minute booking", rooms.created.Start, rooms.created.End)
+	}
+}
+
+func TestShortPressPushesBlueExtensionFramesImmediately(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 45, 0, 0, time.UTC)
+	current := &Booking{
+		ID:               7,
+		ResourceID:       44,
+		Start:            time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		End:              time.Date(2026, 8, 13, 11, 0, 0, 0, time.UTC),
+		CheckinConfirmed: true,
+	}
+	device := &recordingDeviceController{done: make(chan struct{}, 20)}
+	app := NewApp(&recordingRooms{freeBusy: "111000000000000", currentBooking: current}, AppConfig{
+		ResourceID:                44,
+		Now:                       func() time.Time { return now },
+		CommitWait:                time.Hour,
+		ButtonAnimationFrameDelay: time.Millisecond,
+		DeviceController:          device,
+		DevicePushTimeout:         time.Second,
+		Logger:                    discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	app.Poll("abc", "192.0.2.10")
+	waitForDeviceFrames(t, device, 1)
+	device.clearFrames()
+
+	if err := app.HandleEvent(context.Background(), "short_press", "abc", "192.0.2.10"); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	frames := waitForDeviceFrames(t, device, 3)
+	assertLEDValuesPattern(t, frames[0], "RRRBGGGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "RRRBBGGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "RRRBBBGGGGGG")
+}
+
+func TestShortPressUndoPushesReverseGreenFrames(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 45, 0, 0, time.UTC)
+	current := &Booking{
+		ID:               7,
+		ResourceID:       44,
+		Start:            time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		End:              time.Date(2026, 8, 13, 11, 0, 0, 0, time.UTC),
+		CheckinConfirmed: true,
+	}
+	device := &recordingDeviceController{done: make(chan struct{}, 20)}
+	app := NewApp(&recordingRooms{freeBusy: "111000000000000", currentBooking: current}, AppConfig{
+		ResourceID:                44,
+		Now:                       func() time.Time { return now },
+		CommitWait:                time.Hour,
+		ButtonAnimationFrameDelay: time.Millisecond,
+		DeviceController:          device,
+		DevicePushTimeout:         time.Second,
+		Logger:                    discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	app.Poll("abc", "192.0.2.10")
+	waitForDeviceFrames(t, device, 1)
+	app.handleShortPress()
+	app.handleShortPress()
+	app.handleShortPress()
+	device.clearFrames()
+
+	if err := app.HandleEvent(context.Background(), "short_press", "abc", "192.0.2.10"); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	frames := waitForDeviceFrames(t, device, 3)
+	assertLEDValuesPattern(t, frames[0], "RRRBBBBBBBBG")
+	assertLEDValuesPattern(t, frames[1], "RRRBBBBBBBGG")
+	assertLEDValuesPattern(t, frames[2], "RRRBBBBBBGGG")
+}
+
+func TestCommitPendingTurnsBlueExtensionFramesRedClockwise(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 45, 0, 0, time.UTC)
+	current := &Booking{
+		ID:               7,
+		ResourceID:       44,
+		Start:            time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		End:              time.Date(2026, 8, 13, 11, 0, 0, 0, time.UTC),
+		CheckinConfirmed: true,
+	}
+	device := &recordingDeviceController{done: make(chan struct{}, 20)}
+	rooms := &recordingRooms{freeBusy: "111000000000000", currentBooking: current}
+	app := NewApp(rooms, AppConfig{
+		ResourceID:                44,
+		Now:                       func() time.Time { return now },
+		CommitWait:                time.Hour,
+		ButtonAnimationFrameDelay: time.Millisecond,
+		DeviceController:          device,
+		DevicePushTimeout:         time.Second,
+		Logger:                    discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	app.Poll("abc", "192.0.2.10")
+	waitForDeviceFrames(t, device, 1)
+	if err := app.HandleEvent(context.Background(), "short_press", "abc", "192.0.2.10"); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+	waitForDeviceFrames(t, device, 4)
+	device.clearFrames()
+
+	if err := app.CommitPending(context.Background()); err != nil {
+		t.Fatalf("CommitPending returned error: %v", err)
+	}
+
+	frames := waitForDeviceFrames(t, device, 3)
+	assertLEDValuesPattern(t, frames[0], "RRRRBBGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "RRRRRBGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "RRRRRRGGGGGG")
+	if rooms.extendedEnd != now.Add(30*time.Minute) {
+		t.Fatalf("extended end = %s, want %s", rooms.extendedEnd, now.Add(30*time.Minute))
 	}
 }
 
@@ -511,14 +632,20 @@ type discardLogger struct{}
 func (discardLogger) Printf(string, ...any) {}
 
 type recordingDeviceController struct {
-	done   chan struct{}
+	done chan struct{}
+	mu   sync.Mutex
+
 	ip     string
 	values LEDValues
+	frames []LEDValues
 }
 
 func (r *recordingDeviceController) SetIndividualLEDs(_ context.Context, ip string, values LEDValues) error {
+	r.mu.Lock()
 	r.ip = ip
 	r.values = values
+	r.frames = append(r.frames, cloneLEDValues(values))
+	r.mu.Unlock()
 	if r.done != nil {
 		select {
 		case r.done <- struct{}{}:
@@ -528,12 +655,69 @@ func (r *recordingDeviceController) SetIndividualLEDs(_ context.Context, ip stri
 	return nil
 }
 
+func (r *recordingDeviceController) snapshotFrames() []LEDValues {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	frames := make([]LEDValues, len(r.frames))
+	for i := range r.frames {
+		frames[i] = cloneLEDValues(r.frames[i])
+	}
+	return frames
+}
+
+func (r *recordingDeviceController) clearFrames() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.frames = nil
+	r.values = LEDValues{}
+}
+
+func (r *recordingDeviceController) lastIP() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ip
+}
+
+func (r *recordingDeviceController) lastValues() LEDValues {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return cloneLEDValues(r.values)
+}
+
+func waitForDeviceFrames(t *testing.T, device *recordingDeviceController, count int) []LEDValues {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		frames := device.snapshotFrames()
+		if len(frames) >= count {
+			return frames
+		}
+		select {
+		case <-device.done:
+		case <-deadline:
+			t.Fatalf("device frames = %d, want at least %d", len(frames), count)
+		}
+	}
+}
+
+func cloneLEDValues(values LEDValues) LEDValues {
+	return LEDValues{
+		Colors:     append([]LEDColor(nil), values.Colors...),
+		DurationMS: values.DurationMS,
+	}
+}
+
 func assertRedPrefix(t *testing.T, command LEDCommand, redCount int) {
+	t.Helper()
+	assertColorPrefix(t, command, redCount, BusyRed)
+}
+
+func assertColorPrefix(t *testing.T, command LEDCommand, colorCount int, hex string) {
 	t.Helper()
 	for i := 0; i < 12; i++ {
 		want := "#00FF00"
-		if i < redCount {
-			want = "#FF0000"
+		if i < colorCount {
+			want = hex
 		}
 		assertHex(t, command.LEDValues.Colors[i], want)
 	}
@@ -546,13 +730,21 @@ func assertRingPattern(t *testing.T, command LEDCommand, pattern string) {
 	}
 	for i, marker := range pattern {
 		want := "#00FF00"
-		if marker == 'R' {
+		switch marker {
+		case 'R':
 			want = "#FF0000"
+		case 'B':
+			want = ProvisionalBlue
 		}
 		if got := command.LEDValues.Colors[i].Hex(); got != want {
 			t.Fatalf("slot %d color = %s, want %s for pattern %s", i, got, want, pattern)
 		}
 	}
+}
+
+func assertLEDValuesPattern(t *testing.T, values LEDValues, pattern string) {
+	t.Helper()
+	assertRingPattern(t, commandFromLEDValues(values), pattern)
 }
 
 func commandFromLEDValues(values LEDValues) LEDCommand {

@@ -4,7 +4,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 
 ## Current focus
 
-- Debugged live PuKK ring staying blue/turquoise, the last busy LED staying on after a meeting ended, and a `00:00` booking appearing as immediate first-15-minutes busy/right-half busy. Committed the now-working PoC baseline and reviewed feasibility of immediate blue button-extension animation.
+- Debugged live PuKK ring staying blue/turquoise, the last busy LED staying on after a meeting ended, and a `00:00` booking appearing as immediate first-15-minutes busy/right-half busy. Committed the now-working PoC baseline and implemented immediate blue button-extension animation.
 
 ## Decisions made this session
 
@@ -44,18 +44,18 @@ Update this file at the end of every session. Keep it current so the next sessio
 - `/debug/status` now includes `exactBusyRanges`.
 - Reviewed the ring logic after live testing showed too many red LEDs at `23:53` for a `00:00-00:15` meeting. Fixed the mixed quantization model: future exact bookings and `freebusy` fallback now use each 5-minute LED slot's midpoint, while active/current ranges still use overlap. The regression expectation is `GRRRGGGGGGGG`.
 - Committed the stable working implementation as `7fdeac9` (`Implement PuKK proof of concept server`).
-- Reviewed the requested button animation UX. It is feasible using the existing PuKK device-local REST LED push, but POST event handling currently only passes `action`; it should also pass `mac` so the app can look up the last poll IP for that PuKK and push immediate blue/green/red animation frames without waiting for the next poll.
+- Implemented the requested button animation UX. POST event handling now passes `mac` and source IP into the app. Pending button selections render blue, add frames animate blue clockwise, undo frames animate green in reverse order, and commit frames animate blue to red clockwise. Stale animations are canceled with the existing pending generation token.
 
 ## Open questions / blockers
 
 - Live tenant/device verification remains: active-booking lookup filters against `bookings/find`, NFC `pin` behavior, and whether the PuKK accepts the exact `set_leds_individual` response shape as documented.
 - Dedicated device-local REST animations for fast NFC/longpress feedback are still not implemented; ambient ring pushes are implemented.
-- Immediate blue extension/undo button animations are not implemented yet. Desired behavior is recorded in `memory/button_animation_feedback.md`.
+- Immediate blue extension/undo button animations are implemented for short/double/multiple press handling. Desired behavior and current implementation notes are recorded in `memory/button_animation_feedback.md`.
 - If the ring remains blue after the rebuilt binary, check `/debug/status`: `lastBlueLeds` should be 0, `lastLedHex` should show `#00FF00` for free LEDs, and `lastDevicePushError` will show whether the local PuKK REST call failed.
 
 ## Next steps
 
 - Run the rebuilt binary against the real PuKK and check terminal `availabilityBits`, `/debug/status.exactBusyRanges`, `/debug/status.lastLedHex`, and `/debug/status.lastDevicePushError`.
 - Implement optional PuKK device-local REST push animations for NFC/longpress after ambient REST push is verified.
-- Implement immediate button feedback animation: blue clockwise add frames, green reverse undo frames, then blue-to-red commit frames using pending-generation cancellation.
+- Live-test immediate button feedback animation on the physical PuKK and tune the default 100ms frame delay if it feels too slow or too fast.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.

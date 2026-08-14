@@ -20,7 +20,7 @@ Implemented on 2026-08-13 as a single Go module in `/workspaces/pukk-test`.
   - `GET /healthz` returns plain `ok` for network reachability tests.
   - `GET /debug/status` reports request counts, last request, last refresh status, latest availability bitstring/window, pending button state, and observed device IPs.
 - `renderer.go` recomputes the 12 LEDs statelessly on every poll from cached availability, active booking state, and provisional button selection.
-- Per live-device simplification, the normal poll-rendered ring now uses only red `#FF0000` for busy/provisional and bright green `#00FF00` for free. The earlier blue/orange/violet/gradient/pulsing colors are disabled for the PoC.
+- Per live-device simplification, the normal ring uses red `#FF0000` for busy/booked and bright green `#00FF00` for free. Pending button selections render blue `#006DFF` during the commit window, then turn red after commit. The earlier orange/violet/gradient/pulsing colors are disabled for the PoC.
 - `device_client.go` pushes the rendered ring to the PuKK's local REST API (`POST http://<device-ip>/api/setLeds/individual`) on every poll when a real device IP is known. This is needed because live testing indicated the PuKK may not consume LED commands returned in the poll response.
 - `cache.go` over-fetches `[now bucket, now bucket + 75min]` by default, requests Rooms `freebusy` at 1-minute resolution, aggregates that into 12 rolling five-minute LEDs from the current poll time, and treats unknown slices as busy. In normal successful refreshes, exact booking ranges from `bookings/find` decide red booked slots; freebusy remains fallback/diagnostic data.
 - The display window is rolling from `now`, not fixed to wall-clock `:00/:05` buckets. Future booking/freebusy slots are marked busy by slot midpoint, while active/current ranges still use overlap. Example: at 23:53, a 00:00-00:15 booking renders `GRRRGGGGGGGG`.
@@ -28,7 +28,7 @@ Implemented on 2026-08-13 as a single Go module in `/workspaces/pukk-test`.
 - Button provisional commits are guarded by a generation token so stale timers from earlier button presses cannot commit after a later press reset the 5s window.
 - Poll has a fallback for expired provisional selections: if the 5s deadline has passed but the timer callback has not run, the poll removes the pending overlay, renders the selection optimistically as busy, and commits in the background.
 - Successful local ad-hoc/extend commits are rendered optimistically as the active busy booking immediately, even if 3V Rooms `freebusy` or active-booking lookup lags behind.
-- Empty-resource button presses render red in 15-minute steps: 1 press = 15min, 2 = 30min, 3 = 45min. For active bookings, one press extends only to the visible `now+60min` edge if less than 15 minutes remain in that visible hour.
+- Empty-resource button presses render blue in 15-minute pending steps: 1 press = 15min, 2 = 30min, 3 = 45min. For active bookings, one press extends only to the visible `now+60min` edge if less than 15 minutes remain in that visible hour. Button add frames animate blue clockwise, undo frames animate green counter-clockwise, and commit frames animate blue to red clockwise.
 - `rooms_client.go` implements the 3V Rooms HTTP adapter:
   - token: `POST /connect/token` with `grant_type=basic`, `client_id=basic-auth`, `scope=rooms_api`, `user=tobiapi4`
   - freebusy: v2 `/ressources/44/freebusy`

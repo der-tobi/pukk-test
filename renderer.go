@@ -31,8 +31,11 @@ func RenderRing(input RingInput) LEDCommand {
 		activeOverlap := inDisplayRanges(input.Now, slotStart, slotEnd, activeRange)
 		provisionalOverlap := inDisplayRanges(input.Now, slotStart, slotEnd, input.Provisional)
 
-		if busy || activeOverlap || provisionalOverlap {
+		if busy || activeOverlap {
 			hex = BusyRed
+		}
+		if provisionalOverlap {
+			hex = ProvisionalBlue
 		}
 
 		colors[i] = ColorFromHex(hex, brightness)

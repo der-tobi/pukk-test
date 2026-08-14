@@ -37,7 +37,7 @@ func TestRenderRingTreatsUnknownSlotsAsBusy(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[11], "#FF0000")
 }
 
-func TestRenderRingOverlaysProvisionalBlocksInRed(t *testing.T) {
+func TestRenderRingOverlaysProvisionalBlocksInBlue(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	command := RenderRing(RingInput{
 		Now:   now,
@@ -49,9 +49,9 @@ func TestRenderRingOverlaysProvisionalBlocksInRed(t *testing.T) {
 		}},
 	})
 
-	assertHex(t, command.LEDValues.Colors[0], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[1], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[2], "#FF0000")
+	assertHex(t, command.LEDValues.Colors[0], ProvisionalBlue)
+	assertHex(t, command.LEDValues.Colors[1], ProvisionalBlue)
+	assertHex(t, command.LEDValues.Colors[2], ProvisionalBlue)
 	assertHex(t, command.LEDValues.Colors[3], "#00FF00")
 }
 

@@ -57,7 +57,7 @@ func NewServer(app *App, logger Logger) http.Handler {
 				http.Error(w, "missing action", http.StatusBadRequest)
 				return
 			}
-			if err := app.HandleEvent(r.Context(), action); err != nil {
+			if err := app.HandleEvent(r.Context(), action, mac, remote); err != nil {
 				logger.Printf("event action=%s failed: %v", action, err)
 				http.Error(w, err.Error(), http.StatusBadGateway)
 				return

@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**Current PoC override (2026-08-14):** provisional button selections now render red, not blue, in the normal ring. See [ring_poc_simplification.md](ring_poc_simplification.md). The 5s delayed commit, LIFO undo cycle, and max `now+60min` cap below still apply.
+**Current PoC override (2026-08-14):** provisional button selections render blue during the commit window, with immediate device-local animation frames; after commit they become red booked time. See [ring_poc_simplification.md](ring_poc_simplification.md) and [button_animation_feedback.md](button_animation_feedback.md). The 5s delayed commit, LIFO undo cycle, and max `now+60min` cap below still apply.
 
 Settled via `/grilling` on 2026-08-13 (see `memory/claude/session.md`). Applies equally to extending a current meeting and to building an ad-hoc booking from "now" — same mechanism either way.
 
