@@ -188,6 +188,11 @@ components:
           format: date-time
         lastAvailabilityRefreshError:
           type: string
+        lastBookingsRefreshOk:
+          type: string
+          format: date-time
+        lastBookingsRefreshError:
+          type: string
         availabilityBits:
           type: string
         availabilityStart:
@@ -226,6 +231,10 @@ components:
           type: string
         lastDevicePushIp:
           type: string
+        exactBusyKnown:
+          type: boolean
+        exactBusyCount:
+          type: integer
         exactBusyRanges:
           type: array
           items:

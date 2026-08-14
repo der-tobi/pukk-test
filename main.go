@@ -76,7 +76,7 @@ func refreshLoop(ctx context.Context, app *App, logger Logger) {
 
 func logAvailabilityStatus(app *App, logger Logger, prefix string) {
 	status := app.DebugStatus()
-	logger.Printf("%s: bits=%s window=%s..%s interval=%dmin", prefix, status.AvailabilityBits, status.AvailabilityStart.Format(time.RFC3339), status.AvailabilityEnd.Format(time.RFC3339), status.AvailabilityIntervalMinutes)
+	logger.Printf("%s: bits=%s window=%s..%s interval=%dmin exactKnown=%t exactCount=%d", prefix, status.AvailabilityBits, status.AvailabilityStart.Format(time.RFC3339), status.AvailabilityEnd.Format(time.RFC3339), status.AvailabilityIntervalMinutes, status.ExactBusyKnown, status.ExactBusyCount)
 }
 
 func printServerAddresses(port int) {

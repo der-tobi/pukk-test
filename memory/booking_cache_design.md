@@ -15,6 +15,8 @@ The PuKK's LED ring continuously displays a sliding `[now, now+60min]` window. T
 
 **Returned interval inference (2026-08-14):** live testing around `00:40` with a `01:00-01:30` booking showed the app could render almost everything red if Rooms returned fewer `freebusy` bits than requested. The cache now infers the actual source interval from the fetched window length and returned bitstring length for plausible Rooms intervals (`1`, `5`, `15` minutes). Source bits are indexed relative to the fetched window start, not by wall-clock `time.Truncate`, because the bitstring intervals are defined inside the requested `[start,end]` range. Exact booking ranges remain authoritative when `bookings/find` succeeds; the inferred interval only affects `freebusy` fallback.
 
+**Coarse fallback edge handling (2026-08-14):** live testing at `00:52` with a `01:00` meeting showed the 15-minute `freebusy` fallback can still turn the leading LEDs red too early because a source bucket such as `00:50-01:05` is busy if it overlaps the meeting at all. For source intervals coarser than the 5-minute LED display, the cache now trims the leading and trailing edges of contiguous busy runs before projecting them to 5-minute LEDs. This is only a fallback heuristic; exact `bookings/find` ranges remain the preferred path and should be checked first in `/debug/status`.
+
 **Decision:** decouple the upstream lookahead range from the refresh cadence, and always over-fetch beyond the display window:
 
 ```

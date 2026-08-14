@@ -54,6 +54,8 @@ type DebugStatus struct {
 	LastRefreshError             string       `json:"lastRefreshError,omitempty"`
 	LastAvailabilityRefreshOK    time.Time    `json:"lastAvailabilityRefreshOk,omitempty"`
 	LastAvailabilityRefreshError string       `json:"lastAvailabilityRefreshError,omitempty"`
+	LastBookingsRefreshOK        time.Time    `json:"lastBookingsRefreshOk,omitempty"`
+	LastBookingsRefreshError     string       `json:"lastBookingsRefreshError,omitempty"`
 	AvailabilityBits             string       `json:"availabilityBits,omitempty"`
 	AvailabilityStart            time.Time    `json:"availabilityStart,omitempty"`
 	AvailabilityEnd              time.Time    `json:"availabilityEnd,omitempty"`
@@ -69,6 +71,8 @@ type DebugStatus struct {
 	LastDevicePushOK             time.Time    `json:"lastDevicePushOk,omitempty"`
 	LastDevicePushError          string       `json:"lastDevicePushError,omitempty"`
 	LastDevicePushIP             string       `json:"lastDevicePushIp,omitempty"`
+	ExactBusyKnown               bool         `json:"exactBusyKnown"`
+	ExactBusyCount               int          `json:"exactBusyCount"`
 	ExactBusyRanges              []TimeRange  `json:"exactBusyRanges,omitempty"`
 	DeviceIPs                    []string     `json:"deviceIps,omitempty"`
 }
@@ -173,6 +177,7 @@ func (a *App) RefreshActiveBooking(ctx context.Context) error {
 		a.exactBusy = nil
 		a.exactBusyKnown = false
 		a.debug.LastRefreshError = err.Error()
+		a.debug.LastBookingsRefreshError = err.Error()
 		return err
 	}
 
@@ -191,6 +196,8 @@ func (a *App) RefreshActiveBooking(ctx context.Context) error {
 	a.exactBusyKnown = true
 	a.debug.LastRefreshOK = now
 	a.debug.LastRefreshError = ""
+	a.debug.LastBookingsRefreshOK = now
+	a.debug.LastBookingsRefreshError = ""
 	return nil
 }
 
@@ -239,6 +246,8 @@ func (a *App) DebugStatus() DebugStatus {
 		status.ActiveBookingID = a.active.BookingID()
 	}
 	status.ExactBusyRanges = append([]TimeRange(nil), a.exactBusy...)
+	status.ExactBusyKnown = a.exactBusyKnown
+	status.ExactBusyCount = len(a.exactBusy)
 	if a.pending != nil {
 		pendingRange := a.pending.Range()
 		status.PendingStart = pendingRange.Start

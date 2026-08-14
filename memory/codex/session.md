@@ -46,6 +46,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Committed the stable working implementation as `7fdeac9` (`Implement PuKK proof of concept server`).
 - Implemented the requested button animation UX. POST event handling now passes `mac` and source IP into the app. Pending button selections render blue, add frames animate blue clockwise, undo frames animate green in reverse order, and commit frames animate blue to red clockwise. Stale animations are canceled with the existing pending generation token.
 - Investigated live report: at 00:40 with a 01:00-01:30 meeting, LEDs 1-10 were red. Added a regression for the exact booking case (`GGGGRRRRRRGG`) and fixed `freebusy` fallback interval handling. The cache now infers plausible actual returned intervals from bitstring length and indexes source buckets relative to the fetch window start.
+- Investigated follow-up live report: at 00:52 with a 01:00 meeting, LEDs 1-8 were red. Added a regression for coarse 15-minute FreeBusy fallback at 00:52 and trimmed coarse busy-run edges so the first two 5-minute LEDs stay green (`GGRRRRRRGGGG`) when exact ranges are unavailable. Added debug fields for exact booking refresh status/count.
 
 ## Open questions / blockers
 

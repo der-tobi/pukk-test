@@ -110,9 +110,29 @@ func (c *BookingCache) Snapshot(now time.Time) AvailabilitySnapshot {
 		slotStart := now.Add(time.Duration(i) * displayInterval)
 		slotEnd := slotStart.Add(displayInterval)
 		slotMidpoint := slotStart.Add(slotEnd.Sub(slotStart) / 2)
-		snapshot.Known[i], snapshot.Busy[i] = window.PointState(slotMidpoint, sourceInterval)
+		snapshot.Known[i], snapshot.Busy[i] = window.DisplayState(slotMidpoint, displayInterval, sourceInterval)
 	}
 	return snapshot
+}
+
+func (w cachedFreeBusy) DisplayState(at time.Time, displayInterval, sourceInterval time.Duration) (bool, bool) {
+	known, busy := w.PointState(at, sourceInterval)
+	if !known || !busy || sourceInterval <= displayInterval {
+		return known, busy
+	}
+	idx := int(at.Sub(w.start) / sourceInterval)
+	bucketStart := w.start.Add(time.Duration(idx) * sourceInterval)
+	bucketEnd := bucketStart.Add(sourceInterval)
+	previousBusy := idx > 0 && w.data[idx-1] == '1'
+	nextBusy := idx+1 < len(w.data) && w.data[idx+1] == '1'
+
+	if !previousBusy && at.Sub(bucketStart) < sourceInterval-displayInterval {
+		return true, false
+	}
+	if !nextBusy && bucketEnd.Sub(at) <= displayInterval {
+		return true, false
+	}
+	return true, true
 }
 
 func (w cachedFreeBusy) PointState(at time.Time, interval time.Duration) (bool, bool) {

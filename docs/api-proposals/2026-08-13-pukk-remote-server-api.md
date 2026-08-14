@@ -23,3 +23,5 @@ The contract intentionally documents only the local Go server surface. Outbound 
 ## Notes
 
 The response schema mirrors the PuKK LED command shape from `docs/research/pukk-device-api.md`: 12 `LedColor` values, each carrying brightness and RGB channels, inside `led_values.colors`.
+
+`/debug/status` is intentionally allowed to grow with PoC diagnostics. On 2026-08-14, exact booking refresh fields were added (`exactBusyKnown`, `exactBusyCount`, `lastBookingsRefreshOk`, `lastBookingsRefreshError`) so live-device tests can distinguish exact booking-range rendering from coarse FreeBusy fallback rendering.
