@@ -69,12 +69,13 @@ func (c *BookingCache) Refresh(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	intervalMinutes := inferSourceIntervalMinutes(start, end, data, c.config.IntervalMinutes)
 
 	c.mu.Lock()
 	c.window = cachedFreeBusy{
 		start:           start,
 		end:             end,
-		intervalMinutes: c.config.IntervalMinutes,
+		intervalMinutes: intervalMinutes,
 		data:            data,
 	}
 	c.mu.Unlock()
@@ -99,7 +100,7 @@ func (c *BookingCache) Snapshot(now time.Time) AvailabilitySnapshot {
 
 	var snapshot AvailabilitySnapshot
 	snapshot.Now = now
-	sourceInterval := time.Duration(c.config.IntervalMinutes) * time.Minute
+	sourceInterval := time.Duration(window.intervalMinutes) * time.Minute
 	if sourceInterval <= 0 {
 		sourceInterval = 5 * time.Minute
 	}
@@ -118,10 +119,42 @@ func (w cachedFreeBusy) PointState(at time.Time, interval time.Duration) (bool, 
 	if interval <= 0 {
 		return false, true
 	}
-	t := at.Truncate(interval)
-	idx := int(t.Sub(w.start) / interval)
-	if idx < 0 || idx >= len(w.data) || !t.Before(w.end) {
+	if at.Before(w.start) || !at.Before(w.end) {
+		return false, true
+	}
+	idx := int(at.Sub(w.start) / interval)
+	if idx < 0 || idx >= len(w.data) {
 		return false, true
 	}
 	return true, w.data[idx] == '1'
+}
+
+func inferSourceIntervalMinutes(start, end time.Time, data string, requested int) int {
+	if requested <= 0 {
+		requested = 5
+	}
+	if len(data) == 0 || !end.After(start) {
+		return requested
+	}
+	windowMinutes := int(end.Sub(start) / time.Minute)
+	if windowMinutes <= 0 || windowMinutes%len(data) != 0 {
+		return requested
+	}
+	inferred := windowMinutes / len(data)
+	if inferred <= 0 {
+		return requested
+	}
+	if !isPlausibleRoomsInterval(inferred) {
+		return requested
+	}
+	return inferred
+}
+
+func isPlausibleRoomsInterval(minutes int) bool {
+	switch minutes {
+	case 1, 5, 15:
+		return true
+	default:
+		return false
+	}
 }

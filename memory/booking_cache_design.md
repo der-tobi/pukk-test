@@ -13,6 +13,8 @@ The PuKK's LED ring continuously displays a sliding `[now, now+60min]` window. T
 
 **LED quantization rule (2026-08-14):** both exact bookings and `freebusy` fallback use the same rolling LED slots: slot 0 is `[now, now+5min)`, slot 1 is `[now+5min, now+10min)`, and so on. Future bookings/freebusy are sampled at each slot's midpoint, not by "any overlap", so a booking at `00:00-00:15` seen at `23:53` renders `GRRRGGGGGGGG`: first LED green, next three LEDs red, remaining LEDs green. Active/current bookings still use overlap so a booking that is already in progress stays red until it actually ends.
 
+**Returned interval inference (2026-08-14):** live testing around `00:40` with a `01:00-01:30` booking showed the app could render almost everything red if Rooms returned fewer `freebusy` bits than requested. The cache now infers the actual source interval from the fetched window length and returned bitstring length for plausible Rooms intervals (`1`, `5`, `15` minutes). Source bits are indexed relative to the fetched window start, not by wall-clock `time.Truncate`, because the bitstring intervals are defined inside the requested `[start,end]` range. Exact booking ranges remain authoritative when `bookings/find` succeeds; the inferred interval only affects `freebusy` fallback.
+
 **Decision:** decouple the upstream lookahead range from the refresh cadence, and always over-fetch beyond the display window:
 
 ```

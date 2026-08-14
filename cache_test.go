@@ -112,6 +112,32 @@ func TestBookingCacheSnapshotSamplesSlotMidpointsForFutureFreeBusy(t *testing.T)
 	assertSnapshotPattern(t, snapshot, "GRRRGGGGGGGG")
 }
 
+func TestBookingCacheSnapshotInfersActualReturnedFreeBusyInterval(t *testing.T) {
+	now := time.Date(2026, 8, 14, 0, 40, 0, 0, time.UTC)
+	rooms := &recordingRooms{
+		freeBusy:      "01110",
+		freeBusyExact: true,
+	}
+	cache := NewBookingCache(rooms, CacheConfig{
+		ResourceID:      44,
+		DisplayWindow:   time.Hour,
+		RefreshInterval: 5 * time.Minute,
+		SafetyMargin:    10 * time.Minute,
+		IntervalMinutes: 1,
+	})
+	if err := cache.Refresh(context.Background(), now); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+
+	snapshot := cache.Snapshot(now)
+	window := cache.Window()
+
+	if window.IntervalMinutes != 15 {
+		t.Fatalf("inferred interval = %d, want 15", window.IntervalMinutes)
+	}
+	assertSnapshotPattern(t, snapshot, "GGGRRRRRRRRR")
+}
+
 func TestNewAppRequestsOneMinuteRoomsFreeBusyResolution(t *testing.T) {
 	now := time.Date(2026, 8, 13, 23, 0, 0, 0, time.UTC)
 	rooms := &recordingRooms{freeBusy: minuteFreeBusy(75), freeBusyExact: true}

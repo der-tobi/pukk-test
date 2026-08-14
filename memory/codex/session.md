@@ -45,6 +45,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Reviewed the ring logic after live testing showed too many red LEDs at `23:53` for a `00:00-00:15` meeting. Fixed the mixed quantization model: future exact bookings and `freebusy` fallback now use each 5-minute LED slot's midpoint, while active/current ranges still use overlap. The regression expectation is `GRRRGGGGGGGG`.
 - Committed the stable working implementation as `7fdeac9` (`Implement PuKK proof of concept server`).
 - Implemented the requested button animation UX. POST event handling now passes `mac` and source IP into the app. Pending button selections render blue, add frames animate blue clockwise, undo frames animate green in reverse order, and commit frames animate blue to red clockwise. Stale animations are canceled with the existing pending generation token.
+- Investigated live report: at 00:40 with a 01:00-01:30 meeting, LEDs 1-10 were red. Added a regression for the exact booking case (`GGGGRRRRRRGG`) and fixed `freebusy` fallback interval handling. The cache now infers plausible actual returned intervals from bitstring length and indexes source buckets relative to the fetch window start.
 
 ## Open questions / blockers
 
@@ -58,4 +59,5 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Run the rebuilt binary against the real PuKK and check terminal `availabilityBits`, `/debug/status.exactBusyRanges`, `/debug/status.lastLedHex`, and `/debug/status.lastDevicePushError`.
 - Implement optional PuKK device-local REST push animations for NFC/longpress after ambient REST push is verified.
 - Live-test immediate button feedback animation on the physical PuKK and tune the default 100ms frame delay if it feels too slow or too fast.
+- If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end, and fallback interval should now report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.
