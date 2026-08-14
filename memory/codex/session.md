@@ -48,6 +48,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Investigated live report: at 00:40 with a 01:00-01:30 meeting, LEDs 1-10 were red. Added a regression for the exact booking case (`GGGGRRRRRRGG`) and fixed `freebusy` fallback interval handling. The cache now infers plausible actual returned intervals from bitstring length and indexes source buckets relative to the fetch window start.
 - Investigated follow-up live report: at 00:52 with a 01:00 meeting, LEDs 1-8 were red. Added a regression for coarse 15-minute FreeBusy fallback at 00:52 and trimmed coarse busy-run edges so the first two 5-minute LEDs stay green (`GGRRRRRRGGGG`) when exact ranges are unavailable. Added debug fields for exact booking refresh status/count.
 - Investigated live report: at 01:01 with a 01:15-01:45 meeting, LEDs 1-9 were red. Added a regression for the expected exact pattern (`GGGRRRRRRGGG`). Found the likely cause in the Rooms adapter: `BookingDto` uses `Begin`/`End`, while the PoC only decoded `start`/`end`, so exact bookings could be fetched but filtered out as zero-time records. Added tolerant decoding for `Begin`/`End`, `start`/`end`, and resource spelling variants.
+- User noted a next-iteration need: cache exact meeting times for at least the next rolling hour so extension/ad-hoc interactions can fill exact gaps before the next meeting, such as a 23-minute free gap, instead of being limited by coarse FreeBusy or fixed 15-minute steps. Recorded this in `memory/booking_cache_design.md`; not implemented yet.
 
 ## Open questions / blockers
 
@@ -61,5 +62,6 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Run the rebuilt binary against the real PuKK and check terminal `availabilityBits`, `/debug/status.exactBusyRanges`, `/debug/status.lastLedHex`, and `/debug/status.lastDevicePushError`.
 - Implement optional PuKK device-local REST push animations for NFC/longpress after ambient REST push is verified.
 - Live-test immediate button feedback animation on the physical PuKK and tune the default 100ms frame delay if it feels too slow or too fast.
+- Implement next-hour exact meeting-time caching for interaction capping, so button extension/ad-hoc selection can stop at the precise next booking start even when the gap is not a multiple of 15 minutes.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.
