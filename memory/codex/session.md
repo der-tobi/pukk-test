@@ -77,6 +77,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Fixed live longpress termination follow-up: Rooms checkout/release can return successful `BookingDto` timestamps without timezone offsets, e.g. `2026-08-17T21:59:00`; the decoder now accepts those instead of returning an error after Rooms already terminated the booking. Successful checkout also marks local exact ranges as authoritative after clearing the booking, so closed-hours `freebusy` cannot repaint the released room red on the next poll.
 - Checked the code/docs for the yellowish button flash. The app has no yellow/amber command path; likely source is PuKK firmware-side press feedback before/while the classified event reaches the server. No documented server-side setting to disable it was found.
 - Tuned check-in-required orange for the physical PuKK from `#FF9D09` to vivid `#FF6A00`, because the old orange did not stand out enough beside pure green. Added a regression pinning the high-contrast orange.
+- Recorded live rolling-window quantization observation: with bookings `00:00-00:30` and `00:45-01:00`, the visible free gap changed from 2 green LEDs at `00:14` to 3 green LEDs at `00:15`. Likely due to 5-minute LED resolution plus rolling-window anchoring and different current/future quantization rules. User is unsure whether to fix; no code change yet.
 
 ## Open questions / blockers
 
@@ -96,5 +97,6 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Live-test NFC check-in with the no-`pin` v1 endpoint. If it still fails, implement the newer authenticated `POST /bookings/{id}/checkin` path as the next fallback.
 - Re-test the 23:30-23:45 outside-opening-hours NFC flow on the physical PuKK; expected at 23:42 is only LED 0 orange before check-in, then only LED 0 red after check-in.
 - Re-test 3s termination around midnight/outside opening hours. Expected: blue sweep runs, Rooms terminates, green sweep runs, and subsequent polls stay green instead of reverting to red from closed-hours `freebusy`.
+- Decide whether to smooth/normalize gap length around rolling-window boundary transitions, especially for the `00:00-00:30` + `00:45-01:00` example where the inter-meeting gap visually changed length at `00:15`.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.
