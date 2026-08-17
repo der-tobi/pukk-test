@@ -12,7 +12,8 @@ Update this file at the end of every session. Keep it current so the next sessio
 - 2026-08-17 termination UX discussion: user wants longpress termination feedback where current-booking red LEDs turn blue from the meeting end toward now, then green. Constraint restated: PuKK only reports `long_press_3s`/`5s`/`15s` classified events, with no server-visible 1s hold or cancel/release signal, so pre-3s warning/cancel is not implementable through the documented event model.
 - 2026-08-17 implementation: added the longpress termination blue sweep from meeting end back toward now, followed by a green sweep after successful Rooms release. Also changed normal ring rendering so the first visible busy range is red and later visible busy ranges are violet.
 - 2026-08-17 implementation: added the NFC check-in demo path. Current bookings with `checkinConfirmed=false` render orange; an NFC tap checks in the booking and sweeps the current-booking LEDs orange to red.
-- 2026-08-17 live follow-up: user tested v1 `bookings/63486/checkin?pin=...` and Rooms returned `500`/"Mit der angegebenen Buchung kann kein Checkin durchgeführt werden" while the Rooms UI could check in. Simplified the PoC again: any current booking renders orange and NFC no longer calls Rooms check-in.
+- 2026-08-17 live follow-up: user tested v1 `bookings/63486/checkin?pin=...` and Rooms returned `500`/"Mit der angegebenen Buchung kann kein Checkin durchgeführt werden" while the Rooms UI could check in. NFC no longer calls Rooms check-in until the correct endpoint/auth mode is chosen.
+- 2026-08-17 correction: user clarified checked-in bookings must be red; only unchecked current-booking LEDs should be orange. Implemented that correction.
 
 ## Decisions made this session
 
@@ -67,8 +68,9 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Changed upcoming meeting rendering: the first contiguous visible busy range is red, later contiguous visible busy ranges are violet `#7D00B3`; blue provisional overlays still take precedence.
 - Confirmed from the PuKK event research that NFC events do not include tap duration or card-present/card-removed state. A long NFC hold cannot be distinguished from a simple tap using the documented remote-server API.
 - Added `CheckinOrange` `#FF9D09` and renderer precedence for unchecked current bookings. NFC events now carry the device IP through to app handling, perform Rooms check-in, keep the checked-in booking locally, and animate changed LEDs orange to red through the PuKK local REST API.
-- Updated `CheckinOrange` semantics: active/current booking LEDs are orange regardless of `checkinConfirmed`; NFC events are accepted but visual-only and make no Rooms mutation.
+- Temporarily made NFC visual-only after the v1 check-in failure; NFC events are accepted but make no Rooms mutation.
 - Local Rooms source finding: v1 check-in with non-empty `pin` checks reservation `DoormanList` PINs. The startup API password is not an appropriate `pin`. The newer Rooms UI check-in path appears to use authenticated authorization rather than the legacy v1 PIN semantics.
+- Corrected `CheckinOrange` semantics again: it applies only to visible current-booking LEDs while `checkinConfirmed=false`; checked-in current bookings are red. Onsite check-in has two auth modes: service-user check-in when unauthorized actions are enabled, or user/PIN authentication before check-in otherwise.
 
 ## Open questions / blockers
 

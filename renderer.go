@@ -31,7 +31,7 @@ func RenderRing(input RingInput) LEDCommand {
 		}
 		activeOverlap := inDisplayRanges(input.Now, slotStart, slotEnd, activeRange)
 		busySlots[i] = busy || activeOverlap
-		checkinSlots[i] = activeOverlap && input.Active != nil
+		checkinSlots[i] = activeOverlap && input.Active != nil && !input.Active.CheckinConfirmed
 		provisionalSlots[i] = inDisplayRanges(input.Now, slotStart, slotEnd, input.Provisional)
 	}
 

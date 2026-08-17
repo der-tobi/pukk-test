@@ -60,7 +60,7 @@ func TestRenderRingOverlaysProvisionalBlocksInBlue(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[3], "#00FF00")
 }
 
-func TestRenderRingShowsCurrentBookingAsOrange(t *testing.T) {
+func TestRenderRingShowsCheckedInCurrentBookingAsRed(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	command := RenderRing(RingInput{
 		Now:   now,
@@ -74,9 +74,36 @@ func TestRenderRingShowsCurrentBookingAsOrange(t *testing.T) {
 		},
 	})
 
+	assertHex(t, command.LEDValues.Colors[0], BusyRed)
+	assertHex(t, command.LEDValues.Colors[1], BusyRed)
+	assertHex(t, command.LEDValues.Colors[2], BusyRed)
+}
+
+func TestRenderRingShowsOnlyUncheckedCurrentBookingLEDsAsOrange(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	command := RenderRing(RingInput{
+		Now:        now,
+		Known:      slots("111111111111"),
+		ExactKnown: true,
+		ExactBusy: []TimeRange{
+			{Start: now, End: now.Add(15 * time.Minute)},
+			{Start: now.Add(30 * time.Minute), End: now.Add(45 * time.Minute)},
+		},
+		Active: &Booking{
+			ID:               7,
+			Start:            now,
+			End:              now.Add(15 * time.Minute),
+			CheckinConfirmed: false,
+		},
+	})
+
 	assertHex(t, command.LEDValues.Colors[0], CheckinOrange)
 	assertHex(t, command.LEDValues.Colors[1], CheckinOrange)
 	assertHex(t, command.LEDValues.Colors[2], CheckinOrange)
+	assertHex(t, command.LEDValues.Colors[3], FreeGreen)
+	assertHex(t, command.LEDValues.Colors[6], UpcomingViolet)
+	assertHex(t, command.LEDValues.Colors[7], UpcomingViolet)
+	assertHex(t, command.LEDValues.Colors[8], UpcomingViolet)
 }
 
 func slots(pattern string) [12]bool {

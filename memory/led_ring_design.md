@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**Current PoC override (updated 2026-08-17):** live-device testing simplified the ring palette. See [ring_poc_simplification.md](ring_poc_simplification.md). The orientation below still applies, but the current implementation now uses a rolling window from the current poll time instead of wall-clock-aligned buckets. The current booking is orange; when there is no current booking, the first visible busy range is red; later/future busy ranges are violet; free time is green; pending/termination feedback is blue. Gradient and pulsing are disabled in the current implementation.
+**Current PoC override (updated 2026-08-17):** live-device testing simplified the ring palette. See [ring_poc_simplification.md](ring_poc_simplification.md). The orientation below still applies, but the current implementation now uses a rolling window from the current poll time instead of wall-clock-aligned buckets. Unchecked current-booking LEDs are orange; checked-in current-booking LEDs are red; later/future busy ranges are violet; free time is green; pending/termination feedback is blue. Gradient and pulsing are disabled in the current implementation.
 
 **Live-device transport update (2026-08-14):** the server still returns a poll command, but also pushes the ambient red/green ring through the PuKK local REST API on every poll. See [device_led_push.md](device_led_push.md). This supersedes the older assumption below that the regular ambient ring state is delivered purely through poll responses.
 
