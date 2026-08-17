@@ -604,6 +604,54 @@ func TestCommitPendingTurnsBlueExtensionFramesRedClockwise(t *testing.T) {
 	}
 }
 
+func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	current := &Booking{
+		ID:               7,
+		ResourceID:       44,
+		Start:            time.Date(2026, 8, 13, 9, 30, 0, 0, time.UTC),
+		End:              time.Date(2026, 8, 13, 10, 30, 0, 0, time.UTC),
+		CheckinConfirmed: true,
+	}
+	device := &recordingDeviceController{done: make(chan struct{}, 20)}
+	rooms := &recordingRooms{freeBusy: "111111000000000", currentBooking: current}
+	app := NewApp(rooms, AppConfig{
+		ResourceID:                44,
+		Now:                       func() time.Time { return now },
+		ButtonAnimationFrameDelay: time.Millisecond,
+		DeviceController:          device,
+		DevicePushTimeout:         time.Second,
+		Logger:                    discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	app.Poll("abc", "192.0.2.10")
+	waitForDeviceFrames(t, device, 1)
+	device.clearFrames()
+
+	if err := app.HandleEvent(context.Background(), "long_press_3s", "abc", "192.0.2.10"); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	frames := waitForDeviceFrames(t, device, 12)
+	assertLEDValuesPattern(t, frames[0], "RRRRRBGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "RRRRBBGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "RRRBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[3], "RRBBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[4], "RBBBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[5], "BBBBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[6], "BBBBBGGGGGGG")
+	assertLEDValuesPattern(t, frames[7], "BBBBGGGGGGGG")
+	assertLEDValuesPattern(t, frames[8], "BBBGGGGGGGGG")
+	assertLEDValuesPattern(t, frames[9], "BBGGGGGGGGGG")
+	assertLEDValuesPattern(t, frames[10], "BGGGGGGGGGGG")
+	assertLEDValuesPattern(t, frames[11], "GGGGGGGGGGGG")
+	if rooms.releasedID != current.ID {
+		t.Fatalf("released booking id = %d, want %d", rooms.releasedID, current.ID)
+	}
+}
+
 func TestCommittedAdHocBookingRendersRedBeforeFreeBusyCatchesUp(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	rooms := &recordingRooms{freeBusy: "000000000000000"}
@@ -899,6 +947,8 @@ func assertRingPattern(t *testing.T, command LEDCommand, pattern string) {
 			want = "#FF0000"
 		case 'B':
 			want = ProvisionalBlue
+		case 'V':
+			want = UpcomingViolet
 		}
 		if got := command.LEDValues.Colors[i].Hex(); got != want {
 			t.Fatalf("slot %d color = %s, want %s for pattern %s", i, got, want, pattern)

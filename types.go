@@ -11,6 +11,7 @@ const (
 	BusyRed         = "#FF0000"
 	FreeGreen       = "#00FF00"
 	ProvisionalBlue = "#006DFF"
+	UpcomingViolet  = "#7D00B3"
 )
 
 type LEDColor struct {
@@ -36,6 +37,8 @@ func (c LEDColor) Hex() string {
 		return FreeGreen
 	case "#006DFF":
 		return ProvisionalBlue
+	case "#7D00B3":
+		return UpcomingViolet
 	default:
 		return hex
 	}

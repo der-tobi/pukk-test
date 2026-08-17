@@ -14,9 +14,9 @@ type RingInput struct {
 
 func RenderRing(input RingInput) LEDCommand {
 	colors := make([]LEDColor, 12)
+	busySlots := make([]bool, 12)
+	provisionalSlots := make([]bool, 12)
 	for i := range colors {
-		brightness := 100
-		hex := FreeGreen
 		slotStart := input.Now.Add(time.Duration(i) * 5 * time.Minute)
 		slotEnd := slotStart.Add(5 * time.Minute)
 		known := input.Known[i]
@@ -29,12 +29,30 @@ func RenderRing(input RingInput) LEDCommand {
 			activeRange = []TimeRange{{Start: input.Active.Start, End: input.Active.End}}
 		}
 		activeOverlap := inDisplayRanges(input.Now, slotStart, slotEnd, activeRange)
-		provisionalOverlap := inDisplayRanges(input.Now, slotStart, slotEnd, input.Provisional)
+		busySlots[i] = busy || activeOverlap
+		provisionalSlots[i] = inDisplayRanges(input.Now, slotStart, slotEnd, input.Provisional)
+	}
 
-		if busy || activeOverlap {
-			hex = BusyRed
+	seenBusyRange := false
+	inBusyRange := false
+	rangeColor := BusyRed
+	for i := range colors {
+		brightness := 100
+		hex := FreeGreen
+		if busySlots[i] {
+			if !inBusyRange {
+				rangeColor = BusyRed
+				if seenBusyRange {
+					rangeColor = UpcomingViolet
+				}
+				seenBusyRange = true
+			}
+			inBusyRange = true
+			hex = rangeColor
+		} else {
+			inBusyRange = false
 		}
-		if provisionalOverlap {
+		if provisionalSlots[i] {
 			hex = ProvisionalBlue
 		}
 

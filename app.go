@@ -364,7 +364,7 @@ func (a *App) HandleEvent(ctx context.Context, action, mac, deviceIP string) err
 	case "nfc":
 		return a.handleNFC(ctx)
 	case "long_press_3s":
-		return a.handleCheckout(ctx)
+		return a.handleCheckout(ctx, mac, deviceIP)
 	default:
 		return nil
 	}
@@ -685,7 +685,7 @@ func (a *App) animateLEDTransition(deviceIP string, generation int, before, afte
 	}
 	colors := append([]LEDColor(nil), before.LEDValues.Colors...)
 	for i, idx := range indexes {
-		if !a.isAnimationGenerationCurrent(generation) {
+		if generation != 0 && !a.isAnimationGenerationCurrent(generation) {
 			return
 		}
 		if idx < 0 || idx >= len(colors) || idx >= len(after.LEDValues.Colors) {
@@ -753,17 +753,98 @@ func (a *App) handleNFC(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) handleCheckout(ctx context.Context) error {
+func (a *App) handleCheckout(ctx context.Context, mac, deviceIP string) error {
+	now := a.cfg.Now().UTC()
 	a.mu.Lock()
+	if mac != "" && deviceIP != "" {
+		a.deviceIPs[mac] = deviceIP
+	}
+	if deviceIP == "" && mac != "" {
+		deviceIP = a.deviceIPs[mac]
+	}
 	active := cloneBooking(a.active)
+	exactBusy := append([]TimeRange(nil), a.exactBusy...)
+	exactBusyKnown := a.exactBusyKnown
 	a.mu.Unlock()
+	if active == nil {
+		booking, err := a.rooms.FindCurrentBooking(ctx, now)
+		if err != nil {
+			return err
+		}
+		active = booking
+	}
 	if active == nil {
 		return nil
 	}
+
+	before := a.renderRing(now, active, exactBusy, exactBusyKnown, nil)
+	indexes := activeLEDIndexes(now, *active)
+	reverseInts(indexes)
+	blue := commandWithColor(before, indexes, ProvisionalBlue)
+	a.animateLEDTransition(deviceIP, 0, before, blue, indexes)
+
 	if err := a.rooms.ReleaseBooking(ctx, *active); err != nil {
+		a.pushLEDCommand(deviceIP, before)
 		return err
 	}
-	return a.Refresh(ctx)
+
+	a.clearLocalBooking(active)
+	green := commandWithColor(blue, indexes, FreeGreen)
+	a.animateLEDTransition(deviceIP, 0, blue, green, indexes)
+	return nil
+}
+
+func activeLEDIndexes(now time.Time, active Booking) []int {
+	indexes := make([]int, 0, 12)
+	activeRange := []TimeRange{{Start: active.Start, End: active.End}}
+	for i := 0; i < 12; i++ {
+		slotStart := now.Add(time.Duration(i) * 5 * time.Minute)
+		slotEnd := slotStart.Add(5 * time.Minute)
+		if inDisplayRanges(now, slotStart, slotEnd, activeRange) {
+			indexes = append(indexes, i)
+		}
+	}
+	return indexes
+}
+
+func commandWithColor(command LEDCommand, indexes []int, hex string) LEDCommand {
+	next := LEDCommand{
+		Command: command.Command,
+		LEDValues: LEDValues{
+			Colors:     append([]LEDColor(nil), command.LEDValues.Colors...),
+			DurationMS: command.LEDValues.DurationMS,
+		},
+	}
+	color := ColorFromHex(hex, 100)
+	for _, idx := range indexes {
+		if idx >= 0 && idx < len(next.LEDValues.Colors) {
+			next.LEDValues.Colors[idx] = color
+		}
+	}
+	return next
+}
+
+func (a *App) clearLocalBooking(booking *Booking) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.active != nil && sameBookingIdentityOrRange(*a.active, *booking) {
+		a.active = nil
+	}
+	filtered := a.exactBusy[:0]
+	for _, busyRange := range a.exactBusy {
+		if busyRange.Start.Equal(booking.Start) && busyRange.End.Equal(booking.End) {
+			continue
+		}
+		filtered = append(filtered, busyRange)
+	}
+	a.exactBusy = filtered
+}
+
+func sameBookingIdentityOrRange(a, b Booking) bool {
+	if a.BookingID() != 0 && b.BookingID() != 0 {
+		return a.BookingID() == b.BookingID()
+	}
+	return a.Start.Equal(b.Start) && a.End.Equal(b.End)
 }
 
 func cloneBooking(b *Booking) *Booking {

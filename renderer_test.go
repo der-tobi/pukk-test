@@ -5,13 +5,16 @@ import (
 	"time"
 )
 
-func TestRenderRingUsesOnlyRedAndGreenForBusyAndFree(t *testing.T) {
+func TestRenderRingColorsFirstBusyRangeRedAndLaterBusyRangesViolet(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 2, 0, 0, time.UTC)
 	input := RingInput{
-		Now:    now,
-		Busy:   slots("111000111000"),
-		Known:  slots("111111111111"),
-		Active: &Booking{ID: 7, Start: now.Add(-2 * time.Minute), End: now.Add(13 * time.Minute), CheckinConfirmed: true},
+		Now:        now,
+		Known:      slots("111111111111"),
+		ExactKnown: true,
+		ExactBusy: []TimeRange{
+			{Start: now, End: now.Add(15 * time.Minute)},
+			{Start: now.Add(30 * time.Minute), End: now.Add(45 * time.Minute)},
+		},
 	}
 
 	command := RenderRing(input)
@@ -26,7 +29,9 @@ func TestRenderRingUsesOnlyRedAndGreenForBusyAndFree(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[1], "#FF0000")
 	assertHex(t, command.LEDValues.Colors[2], "#FF0000")
 	assertHex(t, command.LEDValues.Colors[3], "#00FF00")
-	assertHex(t, command.LEDValues.Colors[6], "#FF0000")
+	assertHex(t, command.LEDValues.Colors[6], UpcomingViolet)
+	assertHex(t, command.LEDValues.Colors[7], UpcomingViolet)
+	assertHex(t, command.LEDValues.Colors[8], UpcomingViolet)
 }
 
 func TestRenderRingTreatsUnknownSlotsAsBusy(t *testing.T) {
