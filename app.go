@@ -362,7 +362,7 @@ func (a *App) HandleEvent(ctx context.Context, action, mac, deviceIP string) err
 		a.handleShortPressForDevice(ctx, mac, deviceIP)
 		return nil
 	case "nfc":
-		return a.handleNFC(ctx)
+		return a.handleNFC(ctx, mac, deviceIP)
 	case "long_press_3s":
 		return a.handleCheckout(ctx, mac, deviceIP)
 	default:
@@ -735,21 +735,51 @@ func reverseInts(values []int) {
 	}
 }
 
-func (a *App) handleNFC(ctx context.Context) error {
+func (a *App) handleNFC(ctx context.Context, mac, deviceIP string) error {
+	now := a.cfg.Now().UTC()
 	a.mu.Lock()
+	if mac != "" && deviceIP != "" {
+		a.deviceIPs[mac] = deviceIP
+	}
+	if deviceIP == "" && mac != "" {
+		deviceIP = a.deviceIPs[mac]
+	}
 	active := cloneBooking(a.active)
+	exactBusy := append([]TimeRange(nil), a.exactBusy...)
+	exactBusyKnown := a.exactBusyKnown
 	a.mu.Unlock()
+	if active == nil {
+		booking, err := a.rooms.FindCurrentBooking(ctx, now)
+		if err != nil {
+			return err
+		}
+		active = booking
+	}
 	if active == nil || active.CheckinConfirmed {
 		return nil
 	}
+	before := a.renderRing(now, active, exactBusy, exactBusyKnown, nil)
 	booking, err := a.rooms.CheckInBooking(ctx, *active)
 	if err != nil {
 		return err
 	}
+	if booking == nil {
+		checkedIn := *active
+		checkedIn.CheckinConfirmed = true
+		booking = &checkedIn
+	}
+	if booking.Start.IsZero() {
+		booking.Start = active.Start
+	}
+	if booking.End.IsZero() {
+		booking.End = active.End
+	}
 	a.mu.Lock()
 	a.active = booking
 	a.mu.Unlock()
-	_ = a.Refresh(ctx)
+	after := a.renderRing(now, booking, exactBusy, exactBusyKnown, nil)
+	indexes := changedLEDIndexes(before, after)
+	a.animateLEDTransition(deviceIP, 0, before, after, indexes)
 	return nil
 }
 

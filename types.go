@@ -9,6 +9,7 @@ import (
 
 const (
 	BusyRed         = "#FF0000"
+	CheckinOrange   = "#FF9D09"
 	FreeGreen       = "#00FF00"
 	ProvisionalBlue = "#006DFF"
 	UpcomingViolet  = "#7D00B3"
@@ -33,6 +34,8 @@ func (c LEDColor) Hex() string {
 	switch hex {
 	case "#FF0000":
 		return BusyRed
+	case "#FF9D09":
+		return CheckinOrange
 	case "#00FF00":
 		return FreeGreen
 	case "#006DFF":

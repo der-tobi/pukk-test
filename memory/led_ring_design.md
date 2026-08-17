@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**Current PoC override (updated 2026-08-17):** live-device testing simplified the ring palette. See [ring_poc_simplification.md](ring_poc_simplification.md). The orientation below still applies, but the current implementation now uses a rolling window from the current poll time instead of wall-clock-aligned buckets. The first visible busy range is red, later visible busy ranges are violet, free time is green, and pending/termination feedback is blue. Orange check-in state, gradient, and pulsing are disabled in the current implementation.
+**Current PoC override (updated 2026-08-17):** live-device testing simplified the ring palette. See [ring_poc_simplification.md](ring_poc_simplification.md). The orientation below still applies, but the current implementation now uses a rolling window from the current poll time instead of wall-clock-aligned buckets. A current booking requiring check-in is orange, the first visible checked-in busy range is red, later visible busy ranges are violet, free time is green, and pending/termination feedback is blue. Gradient and pulsing are disabled in the current implementation.
 
 **Live-device transport update (2026-08-14):** the server still returns a poll command, but also pushes the ambient red/green ring through the PuKK local REST API on every poll. See [device_led_push.md](device_led_push.md). This supersedes the older assumption below that the regular ambient ring state is delivered purely through poll responses.
 
@@ -25,6 +25,6 @@ The PuKK has 12 LEDs arranged like the 5-minute marks of a clock face. Design se
 
 **Color computation — stateless:** all 12 LED colors are recomputed fresh on every poll response, derived from the cached freebusy data ([[booking-cache-design]]) plus current poll time. No ticking goroutine maintains ring state independently of polls — this avoids drift/sync bugs between a background ticker and what's actually served, and the 5s poll cadence is fine-grained enough for 1-minute gradient steps.
 
-**Fast feedback outside the poll cycle:** some effects need multiple frames faster than the 5s poll interval. Longpress checkout now pushes a blue sweep over the current booking LEDs from the meeting end toward now, then a green sweep after Rooms release succeeds. Future NFC check-in feedback can use the same local REST push path. These are pushed via the device's own local REST API (`http://{device-ip}/api/setLeds...`, see `docs/research/pukk-device-api.md` §6) rather than waiting for the next poll.
+**Fast feedback outside the poll cycle:** some effects need multiple frames faster than the 5s poll interval. Longpress checkout pushes a blue sweep over the current booking LEDs from the meeting end toward now, then a green sweep after Rooms release succeeds. NFC check-in pushes an orange-to-red sweep over the current booking LEDs after Rooms check-in succeeds. These are pushed via the device's own local REST API (`http://{device-ip}/api/setLeds...`, see `docs/research/pukk-device-api.md` §6) rather than waiting for the next poll.
 
 **How to apply:** whichever agent implements LED rendering should build the "stateless, recompute every poll" renderer first, then layer the local-API push path on top for the handful of fast one-off animations — don't build them as one system.

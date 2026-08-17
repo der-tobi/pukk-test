@@ -652,6 +652,46 @@ func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *te
 	}
 }
 
+func TestNFCTapChecksInAndSweepsCurrentBookingOrangeToRed(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	current := &Booking{
+		ID:               7,
+		ResourceID:       44,
+		Start:            time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		End:              time.Date(2026, 8, 13, 10, 15, 0, 0, time.UTC),
+		CheckinConfirmed: false,
+	}
+	device := &recordingDeviceController{done: make(chan struct{}, 20)}
+	rooms := &recordingRooms{freeBusy: "111000000000000", currentBooking: current}
+	app := NewApp(rooms, AppConfig{
+		ResourceID:                44,
+		Now:                       func() time.Time { return now },
+		ButtonAnimationFrameDelay: time.Millisecond,
+		DeviceController:          device,
+		DevicePushTimeout:         time.Second,
+		Logger:                    discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "OOOGGGGGGGGG")
+	waitForDeviceFrames(t, device, 1)
+	device.clearFrames()
+
+	if err := app.HandleEvent(context.Background(), "nfc", "abc", "192.0.2.10"); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	frames := waitForDeviceFrames(t, device, 3)
+	assertLEDValuesPattern(t, frames[0], "ROOGGGGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "RROGGGGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "RRRGGGGGGGGG")
+	if rooms.checkedInID != current.ID {
+		t.Fatalf("checked-in booking id = %d, want %d", rooms.checkedInID, current.ID)
+	}
+	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "RRRGGGGGGGGG")
+}
+
 func TestCommittedAdHocBookingRendersRedBeforeFreeBusyCatchesUp(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	rooms := &recordingRooms{freeBusy: "000000000000000"}
@@ -947,6 +987,8 @@ func assertRingPattern(t *testing.T, command LEDCommand, pattern string) {
 			want = "#FF0000"
 		case 'B':
 			want = ProvisionalBlue
+		case 'O':
+			want = CheckinOrange
 		case 'V':
 			want = UpcomingViolet
 		}

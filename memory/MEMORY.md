@@ -16,7 +16,7 @@ All agents read this file at session start. Add pointers here when creating new 
 - [collaboration_model.md](collaboration_model.md) — Claude/Codex are equal-rights peers, no fixed ownership split
 - [booking_cache_design.md](booking_cache_design.md) — 3V Rooms freebusy caching: buffer-beyond-display-window design, default 5min refresh, resolved stale/cold-start fallback
 - [led_ring_design.md](led_ring_design.md) — LED ring orientation and current rolling-window PoC override, gradient scope, pulse/blink rendering approach
-- [ring_poc_simplification.md](ring_poc_simplification.md) — live-device simplification: normal ring uses only red busy/provisional and green free
+- [ring_poc_simplification.md](ring_poc_simplification.md) — live-device simplification: high-contrast ring colors for free, busy, upcoming, pending, and check-in-required states
 - [button_animation_feedback.md](button_animation_feedback.md) — requested immediate blue extension/undo animations on button presses, separate from normal red/green ambient ring
 - [device_led_push.md](device_led_push.md) — live-device finding: push LED state through the PuKK local REST API in addition to poll responses
 - [button_state_machine.md](button_state_machine.md) — button extend/undo cycle, 5s commit window, longpress-checkout redefined to device capabilities, NFC

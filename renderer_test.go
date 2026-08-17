@@ -60,7 +60,7 @@ func TestRenderRingOverlaysProvisionalBlocksInBlue(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[3], "#00FF00")
 }
 
-func TestRenderRingShowsUncheckedInBookingAsRedNotOrange(t *testing.T) {
+func TestRenderRingShowsUncheckedInBookingAsOrange(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	command := RenderRing(RingInput{
 		Now:   now,
@@ -74,9 +74,9 @@ func TestRenderRingShowsUncheckedInBookingAsRedNotOrange(t *testing.T) {
 		},
 	})
 
-	assertHex(t, command.LEDValues.Colors[0], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[1], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[2], "#FF0000")
+	assertHex(t, command.LEDValues.Colors[0], CheckinOrange)
+	assertHex(t, command.LEDValues.Colors[1], CheckinOrange)
+	assertHex(t, command.LEDValues.Colors[2], CheckinOrange)
 }
 
 func slots(pattern string) [12]bool {

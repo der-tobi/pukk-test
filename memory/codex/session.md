@@ -11,6 +11,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - 2026-08-17 live bug follow-up: user tested around 22:18 with a 22:30 booking while the resource was outside opening hours. Found `freebusy` cannot be used as a local bookability veto because closed hours can be status `1` while definitive bookings can be status `4`, and the user's Rooms permissions allow outside-hours booking.
 - 2026-08-17 termination UX discussion: user wants longpress termination feedback where current-booking red LEDs turn blue from the meeting end toward now, then green. Constraint restated: PuKK only reports `long_press_3s`/`5s`/`15s` classified events, with no server-visible 1s hold or cancel/release signal, so pre-3s warning/cancel is not implementable through the documented event model.
 - 2026-08-17 implementation: added the longpress termination blue sweep from meeting end back toward now, followed by a green sweep after successful Rooms release. Also changed normal ring rendering so the first visible busy range is red and later visible busy ranges are violet.
+- 2026-08-17 implementation: added the NFC check-in demo path. Current bookings with `checkinConfirmed=false` render orange; an NFC tap checks in the booking and sweeps the current-booking LEDs orange to red.
 
 ## Decisions made this session
 
@@ -64,11 +65,12 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Implemented longpress termination feedback: on `long_press_3s`, remaining current-booking LEDs turn blue from the meeting end toward now, Rooms release/checkout runs, then those LEDs turn green. The animation is pushed through the PuKK local REST API and is not tied to button pending-generation timers.
 - Changed upcoming meeting rendering: the first contiguous visible busy range is red, later contiguous visible busy ranges are violet `#7D00B3`; blue provisional overlays still take precedence.
 - Confirmed from the PuKK event research that NFC events do not include tap duration or card-present/card-removed state. A long NFC hold cannot be distinguished from a simple tap using the documented remote-server API.
+- Added `CheckinOrange` `#FF9D09` and renderer precedence for unchecked current bookings. NFC events now carry the device IP through to app handling, perform Rooms check-in, keep the checked-in booking locally, and animate changed LEDs orange to red through the PuKK local REST API.
 
 ## Open questions / blockers
 
 - Live tenant/device verification remains: active-booking lookup filters against `bookings/find`, especially whether `/debug/status.exactBusyRanges` now contains `Begin`/`End` bookings from the tenant; NFC `pin` behavior; and whether the PuKK accepts the exact `set_leds_individual` response shape as documented.
-- Dedicated device-local REST animation for longpress checkout is implemented; faster NFC/checkin feedback is still not implemented.
+- Dedicated device-local REST animations are implemented for longpress checkout and NFC check-in.
 - Immediate blue extension/undo button animations are implemented for short/double/multiple press handling. Desired behavior and current implementation notes are recorded in `memory/button_animation_feedback.md`.
 - If the ring remains blue after the rebuilt binary, check `/debug/status`: `lastBlueLeds` should be 0, `lastLedHex` should show `#00FF00` for free LEDs, and `lastDevicePushError` will show whether the local PuKK REST call failed.
 - Exact interaction capping depends on successful `bookings/find` refreshes. If `/debug/status.exactBusyKnown` is false even after the on-demand button refresh, button selection no longer uses `freebusy` as a veto; the subsequent Rooms mutation may still reject an overlap.
@@ -80,6 +82,6 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Live-test immediate button feedback animation on the physical PuKK and tune the default 100ms frame delay if it feels too slow or too fast.
 - Live-test the exact interaction cap with a non-15-minute gap before the next booking and verify `/debug/status.exactBusyRanges` contains that next booking before pressing the button.
 - Live-test the longpress checkout sweep on the physical PuKK and tune the default 100ms frame delay if needed.
-- For check-in demo work, implement NFC single-tap checkin feedback; documented NFC events do not support measuring a 3-second card hold.
+- Live-test NFC check-in with a booking that actually has `checkinConfirmed=false` and verify the Rooms tenant accepts the startup password as the v1 check-in `pin`.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.
