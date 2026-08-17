@@ -337,6 +337,42 @@ func TestAdHocPressesCapAtExactNextBookingStart(t *testing.T) {
 	}
 }
 
+func TestAdHocPressRefreshesExactBookingsWhenFreeBusyIsClosed(t *testing.T) {
+	now := time.Date(2026, 8, 13, 22, 18, 0, 0, time.UTC)
+	nextStart := time.Date(2026, 8, 13, 22, 30, 0, 0, time.UTC)
+	rooms := &recordingRooms{
+		freeBusy:      strings.Repeat("1", 75),
+		freeBusyExact: true,
+		bookings: []Booking{{
+			ID:               11,
+			ResourceID:       44,
+			Start:            nextStart,
+			End:              time.Date(2026, 8, 13, 23, 0, 0, 0, time.UTC),
+			CheckinConfirmed: true,
+		}},
+	}
+	app := NewApp(rooms, AppConfig{
+		ResourceID: 44,
+		Now:        func() time.Time { return now },
+		CommitWait: time.Hour,
+		Logger:     discardLogger{},
+	})
+	if err := app.RefreshAvailability(context.Background()); err != nil {
+		t.Fatalf("RefreshAvailability returned error: %v", err)
+	}
+
+	if err := app.HandleEvent(context.Background(), "short_press", "abc", "192.0.2.10"); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+	if err := app.CommitPending(context.Background()); err != nil {
+		t.Fatalf("CommitPending returned error: %v", err)
+	}
+
+	if rooms.created.Start != now || rooms.created.End != nextStart {
+		t.Fatalf("created range = %s..%s, want %s..%s", rooms.created.Start, rooms.created.End, now, nextStart)
+	}
+}
+
 func TestActiveBookingPressesCapExtensionAtExactNextBookingStart(t *testing.T) {
 	now := time.Date(2026, 8, 13, 9, 55, 0, 0, time.UTC)
 	current := &Booking{

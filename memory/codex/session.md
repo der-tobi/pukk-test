@@ -7,6 +7,8 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Debugged live PuKK ring staying blue/turquoise, the last busy LED staying on after a meeting ended, and a `00:00` booking appearing as immediate first-15-minutes busy/right-half busy. Committed the now-working PoC baseline and implemented immediate blue button-extension animation.
 - 2026-08-17 context check: user asked where we left off. Repository is on `main` with a clean working tree. Latest commit is `41d6787` (`Record exact meeting-time cache follow-up`); no code changes were made in this check.
 - 2026-08-17 implementation: completed the exact next-meeting cap for button ad-hoc/extension interactions.
+- 2026-08-17 architecture discussion: user asked whether `freebusy` is still needed or whether the app should simply fetch all bookings for the next 75 minutes. Recommendation given: keep `freebusy` for now as canonical availability fallback/diagnostics until live tenant testing proves `bookings/find` returns every blocking booking for resource 44; after that, a booking-only read model is viable and simpler.
+- 2026-08-17 live bug follow-up: user tested around 22:18 with a 22:30 booking while the resource was outside opening hours. Found `freebusy` cannot be used as a local bookability veto because closed hours can be status `1` while definitive bookings can be status `4`, and the user's Rooms permissions allow outside-hours booking.
 
 ## Decisions made this session
 
@@ -54,6 +56,9 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Implemented that exact interaction cap. When `bookings/find` exact ranges are known, `maxSelectableEnd` now uses the first exact busy range after the pending base end as the cap; cached `freebusy` slots remain the fallback only when exact ranges are unknown.
 - Added regression tests for both empty-resource ad-hoc booking and active-booking extension with a next booking at a non-15-minute boundary (`10:23`), verifying both commit exactly to that next start.
 - Verified `go test ./...`, `go build ./...`, `GOOS=windows GOARCH=amd64 go build -o pukk-test.exe .`, and `git diff --check`.
+- Added a regression for the closed-hours startup/refresh gap: if only `freebusy` has loaded and says closed/busy, a button press now refreshes exact bookings on demand and can still create an ad-hoc booking up to the next exact booking start.
+- Removed `freebusy` as an interaction fallback/veto. If exact bookings are unknown after the on-demand refresh attempt, button selection can reach the visible hour edge and the Rooms create/extend API is trusted to reject real conflicts.
+- Updated `freebusy` fallback parsing so any non-zero Rooms status is treated as busy for rendering diagnostics; this covers status `4` definitive bookings from local Rooms source tests.
 
 ## Open questions / blockers
 
@@ -61,7 +66,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Dedicated device-local REST animations for fast NFC/longpress feedback are still not implemented; ambient ring pushes are implemented.
 - Immediate blue extension/undo button animations are implemented for short/double/multiple press handling. Desired behavior and current implementation notes are recorded in `memory/button_animation_feedback.md`.
 - If the ring remains blue after the rebuilt binary, check `/debug/status`: `lastBlueLeds` should be 0, `lastLedHex` should show `#00FF00` for free LEDs, and `lastDevicePushError` will show whether the local PuKK REST call failed.
-- Exact interaction capping depends on successful `bookings/find` refreshes. If `/debug/status.exactBusyKnown` is false, button selection still falls back to coarse cached `freebusy` slots.
+- Exact interaction capping depends on successful `bookings/find` refreshes. If `/debug/status.exactBusyKnown` is false even after the on-demand button refresh, button selection no longer uses `freebusy` as a veto; the subsequent Rooms mutation may still reject an overlap.
 
 ## Next steps
 

@@ -359,7 +359,7 @@ func (a *App) pushLEDValues(ctx context.Context, deviceIP string, values LEDValu
 func (a *App) HandleEvent(ctx context.Context, action, mac, deviceIP string) error {
 	switch action {
 	case "short_press", "double_press", "multiple_press":
-		a.handleShortPressForDevice(mac, deviceIP)
+		a.handleShortPressForDevice(ctx, mac, deviceIP)
 		return nil
 	case "nfc":
 		return a.handleNFC(ctx)
@@ -371,11 +371,12 @@ func (a *App) HandleEvent(ctx context.Context, action, mac, deviceIP string) err
 }
 
 func (a *App) handleShortPress() {
-	a.handleShortPressForDevice("", "")
+	a.handleShortPressForDevice(context.Background(), "", "")
 }
 
-func (a *App) handleShortPressForDevice(mac, deviceIP string) {
+func (a *App) handleShortPressForDevice(ctx context.Context, mac, deviceIP string) {
 	now := a.cfg.Now().UTC()
+	a.ensureExactBusyForInteraction(ctx)
 	a.mu.Lock()
 	if mac != "" && deviceIP != "" {
 		a.deviceIPs[mac] = deviceIP
@@ -436,6 +437,18 @@ func (a *App) handleShortPressForDevice(mac, deviceIP string) {
 	a.animateLEDTransitionAsync(deviceIP, generation, before, after, indexes)
 }
 
+func (a *App) ensureExactBusyForInteraction(ctx context.Context) {
+	a.mu.Lock()
+	exactBusyKnown := a.exactBusyKnown
+	a.mu.Unlock()
+	if exactBusyKnown {
+		return
+	}
+	if err := a.RefreshActiveBooking(ctx); err != nil {
+		a.cfg.Logger.Printf("button exact booking refresh failed; continuing without exact booking cap: %v", err)
+	}
+}
+
 func (a *App) maxSelectableEnd(now, baseEnd time.Time, exactBusy []TimeRange, exactBusyKnown bool) time.Time {
 	windowEnd := now.Add(time.Hour)
 	if exactBusyKnown {
@@ -452,21 +465,6 @@ func (a *App) maxSelectableEnd(now, baseEnd time.Time, exactBusy []TimeRange, ex
 			}
 		}
 		return maxEnd
-	}
-
-	snapshot := a.cache.Snapshot(now)
-	interval := 5 * time.Minute
-	for i := 0; i < 12; i++ {
-		slotStart := now.Add(time.Duration(i) * interval)
-		if slotStart.Before(baseEnd) {
-			continue
-		}
-		if snapshot.Busy[i] {
-			if slotStart.Before(windowEnd) {
-				return slotStart
-			}
-			break
-		}
 	}
 	return windowEnd
 }

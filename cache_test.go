@@ -160,6 +160,28 @@ func TestBookingCacheSnapshotDefersLeadingEdgeForCoarseFreeBusyFallback(t *testi
 	assertSnapshotPattern(t, snapshot, "GGRRRRRRGGGG")
 }
 
+func TestBookingCacheSnapshotTreatsRoomsStatusFourAsBusy(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	rooms := &recordingRooms{
+		freeBusy:      "000444000000000",
+		freeBusyExact: true,
+	}
+	cache := NewBookingCache(rooms, CacheConfig{
+		ResourceID:      44,
+		DisplayWindow:   time.Hour,
+		RefreshInterval: 5 * time.Minute,
+		SafetyMargin:    10 * time.Minute,
+		IntervalMinutes: 5,
+	})
+	if err := cache.Refresh(context.Background(), now); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+
+	snapshot := cache.Snapshot(now)
+
+	assertSnapshotPattern(t, snapshot, "GGGRRRGGGGGG")
+}
+
 func TestNewAppRequestsOneMinuteRoomsFreeBusyResolution(t *testing.T) {
 	now := time.Date(2026, 8, 13, 23, 0, 0, 0, time.UTC)
 	rooms := &recordingRooms{freeBusy: minuteFreeBusy(75), freeBusyExact: true}

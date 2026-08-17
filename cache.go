@@ -123,8 +123,8 @@ func (w cachedFreeBusy) DisplayState(at time.Time, displayInterval, sourceInterv
 	idx := int(at.Sub(w.start) / sourceInterval)
 	bucketStart := w.start.Add(time.Duration(idx) * sourceInterval)
 	bucketEnd := bucketStart.Add(sourceInterval)
-	previousBusy := idx > 0 && w.data[idx-1] == '1'
-	nextBusy := idx+1 < len(w.data) && w.data[idx+1] == '1'
+	previousBusy := idx > 0 && freeBusyStatusBusy(w.data[idx-1])
+	nextBusy := idx+1 < len(w.data) && freeBusyStatusBusy(w.data[idx+1])
 
 	if !previousBusy && at.Sub(bucketStart) < sourceInterval-displayInterval {
 		return true, false
@@ -146,7 +146,11 @@ func (w cachedFreeBusy) PointState(at time.Time, interval time.Duration) (bool, 
 	if idx < 0 || idx >= len(w.data) {
 		return false, true
 	}
-	return true, w.data[idx] == '1'
+	return true, freeBusyStatusBusy(w.data[idx])
+}
+
+func freeBusyStatusBusy(status byte) bool {
+	return status != '0'
 }
 
 func inferSourceIntervalMinutes(start, end time.Time, data string, requested int) int {
