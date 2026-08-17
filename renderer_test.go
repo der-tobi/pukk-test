@@ -60,7 +60,7 @@ func TestRenderRingOverlaysProvisionalBlocksInBlue(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[3], "#00FF00")
 }
 
-func TestRenderRingShowsUncheckedInBookingAsOrange(t *testing.T) {
+func TestRenderRingShowsCurrentBookingAsOrange(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	command := RenderRing(RingInput{
 		Now:   now,
@@ -70,7 +70,7 @@ func TestRenderRingShowsUncheckedInBookingAsOrange(t *testing.T) {
 			ID:               7,
 			Start:            now,
 			End:              now.Add(15 * time.Minute),
-			CheckinConfirmed: false,
+			CheckinConfirmed: true,
 		},
 	})
 

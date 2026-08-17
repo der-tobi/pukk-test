@@ -735,51 +735,12 @@ func reverseInts(values []int) {
 	}
 }
 
-func (a *App) handleNFC(ctx context.Context, mac, deviceIP string) error {
-	now := a.cfg.Now().UTC()
+func (a *App) handleNFC(_ context.Context, mac, deviceIP string) error {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	if mac != "" && deviceIP != "" {
 		a.deviceIPs[mac] = deviceIP
 	}
-	if deviceIP == "" && mac != "" {
-		deviceIP = a.deviceIPs[mac]
-	}
-	active := cloneBooking(a.active)
-	exactBusy := append([]TimeRange(nil), a.exactBusy...)
-	exactBusyKnown := a.exactBusyKnown
-	a.mu.Unlock()
-	if active == nil {
-		booking, err := a.rooms.FindCurrentBooking(ctx, now)
-		if err != nil {
-			return err
-		}
-		active = booking
-	}
-	if active == nil || active.CheckinConfirmed {
-		return nil
-	}
-	before := a.renderRing(now, active, exactBusy, exactBusyKnown, nil)
-	booking, err := a.rooms.CheckInBooking(ctx, *active)
-	if err != nil {
-		return err
-	}
-	if booking == nil {
-		checkedIn := *active
-		checkedIn.CheckinConfirmed = true
-		booking = &checkedIn
-	}
-	if booking.Start.IsZero() {
-		booking.Start = active.Start
-	}
-	if booking.End.IsZero() {
-		booking.End = active.End
-	}
-	a.mu.Lock()
-	a.active = booking
-	a.mu.Unlock()
-	after := a.renderRing(now, booking, exactBusy, exactBusyKnown, nil)
-	indexes := changedLEDIndexes(before, after)
-	a.animateLEDTransition(deviceIP, 0, before, after, indexes)
 	return nil
 }
 

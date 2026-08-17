@@ -439,7 +439,7 @@ func TestActiveBookingPressExtendsToVisibleHourEdgeWhenOnlyTenMinutesFree(t *tes
 
 	app.handleShortPress()
 	command := app.Poll("abc", "192.0.2.10")
-	assertRingPattern(t, command, "RRRRRRRRRRBB")
+	assertRingPattern(t, command, "OOOOOOOOOOBB")
 
 	if err := app.CommitPending(context.Background()); err != nil {
 		t.Fatalf("CommitPending returned error: %v", err)
@@ -516,9 +516,9 @@ func TestShortPressPushesBlueExtensionFramesImmediately(t *testing.T) {
 	}
 
 	frames := waitForDeviceFrames(t, device, 3)
-	assertLEDValuesPattern(t, frames[0], "RRRBGGGGGGGG")
-	assertLEDValuesPattern(t, frames[1], "RRRBBGGGGGGG")
-	assertLEDValuesPattern(t, frames[2], "RRRBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[0], "OOOBGGGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "OOOBBGGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "OOOBBBGGGGGG")
 }
 
 func TestShortPressUndoPushesReverseGreenFrames(t *testing.T) {
@@ -555,9 +555,9 @@ func TestShortPressUndoPushesReverseGreenFrames(t *testing.T) {
 	}
 
 	frames := waitForDeviceFrames(t, device, 3)
-	assertLEDValuesPattern(t, frames[0], "RRRBBBBBBBBG")
-	assertLEDValuesPattern(t, frames[1], "RRRBBBBBBBGG")
-	assertLEDValuesPattern(t, frames[2], "RRRBBBBBBGGG")
+	assertLEDValuesPattern(t, frames[0], "OOOBBBBBBBBG")
+	assertLEDValuesPattern(t, frames[1], "OOOBBBBBBBGG")
+	assertLEDValuesPattern(t, frames[2], "OOOBBBBBBGGG")
 }
 
 func TestCommitPendingTurnsBlueExtensionFramesRedClockwise(t *testing.T) {
@@ -596,9 +596,9 @@ func TestCommitPendingTurnsBlueExtensionFramesRedClockwise(t *testing.T) {
 	}
 
 	frames := waitForDeviceFrames(t, device, 3)
-	assertLEDValuesPattern(t, frames[0], "RRRRBBGGGGGG")
-	assertLEDValuesPattern(t, frames[1], "RRRRRBGGGGGG")
-	assertLEDValuesPattern(t, frames[2], "RRRRRRGGGGGG")
+	assertLEDValuesPattern(t, frames[0], "OOOOBBGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "OOOOOBGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "OOOOOOGGGGGG")
 	if rooms.extendedEnd != now.Add(30*time.Minute) {
 		t.Fatalf("extended end = %s, want %s", rooms.extendedEnd, now.Add(30*time.Minute))
 	}
@@ -635,11 +635,11 @@ func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *te
 	}
 
 	frames := waitForDeviceFrames(t, device, 12)
-	assertLEDValuesPattern(t, frames[0], "RRRRRBGGGGGG")
-	assertLEDValuesPattern(t, frames[1], "RRRRBBGGGGGG")
-	assertLEDValuesPattern(t, frames[2], "RRRBBBGGGGGG")
-	assertLEDValuesPattern(t, frames[3], "RRBBBBGGGGGG")
-	assertLEDValuesPattern(t, frames[4], "RBBBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[0], "OOOOOBGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "OOOOBBGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "OOOBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[3], "OOBBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[4], "OBBBBBGGGGGG")
 	assertLEDValuesPattern(t, frames[5], "BBBBBBGGGGGG")
 	assertLEDValuesPattern(t, frames[6], "BBBBBGGGGGGG")
 	assertLEDValuesPattern(t, frames[7], "BBBBGGGGGGGG")
@@ -652,14 +652,14 @@ func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *te
 	}
 }
 
-func TestNFCTapChecksInAndSweepsCurrentBookingOrangeToRed(t *testing.T) {
+func TestNFCTapDoesNotCallRoomsCheckinForVisualOnlyDemo(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	current := &Booking{
 		ID:               7,
 		ResourceID:       44,
 		Start:            time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
 		End:              time.Date(2026, 8, 13, 10, 15, 0, 0, time.UTC),
-		CheckinConfirmed: false,
+		CheckinConfirmed: true,
 	}
 	device := &recordingDeviceController{done: make(chan struct{}, 20)}
 	rooms := &recordingRooms{freeBusy: "111000000000000", currentBooking: current}
@@ -682,14 +682,13 @@ func TestNFCTapChecksInAndSweepsCurrentBookingOrangeToRed(t *testing.T) {
 		t.Fatalf("HandleEvent returned error: %v", err)
 	}
 
-	frames := waitForDeviceFrames(t, device, 3)
-	assertLEDValuesPattern(t, frames[0], "ROOGGGGGGGGG")
-	assertLEDValuesPattern(t, frames[1], "RROGGGGGGGGG")
-	assertLEDValuesPattern(t, frames[2], "RRRGGGGGGGGG")
-	if rooms.checkedInID != current.ID {
-		t.Fatalf("checked-in booking id = %d, want %d", rooms.checkedInID, current.ID)
+	if frames := device.snapshotFrames(); len(frames) != 0 {
+		t.Fatalf("device frames after NFC = %d, want 0", len(frames))
 	}
-	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "RRRGGGGGGGGG")
+	if rooms.checkedInID != 0 {
+		t.Fatalf("checked-in booking id = %d, want no Rooms checkin call", rooms.checkedInID)
+	}
+	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "OOOGGGGGGGGG")
 }
 
 func TestCommittedAdHocBookingRendersRedBeforeFreeBusyCatchesUp(t *testing.T) {
@@ -711,9 +710,9 @@ func TestCommittedAdHocBookingRendersRedBeforeFreeBusyCatchesUp(t *testing.T) {
 	}
 	command := app.Poll("abc", "192.0.2.10")
 
-	assertHex(t, command.LEDValues.Colors[0], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[1], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[2], "#FF0000")
+	assertHex(t, command.LEDValues.Colors[0], CheckinOrange)
+	assertHex(t, command.LEDValues.Colors[1], CheckinOrange)
+	assertHex(t, command.LEDValues.Colors[2], CheckinOrange)
 	assertHex(t, command.LEDValues.Colors[3], "#00FF00")
 }
 
@@ -734,9 +733,9 @@ func TestPollDoesNotRenderExpiredPendingSelectionBlue(t *testing.T) {
 	now = now.Add(6 * time.Second)
 	command := app.Poll("abc", "192.0.2.10")
 
-	assertHex(t, command.LEDValues.Colors[0], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[1], "#FF0000")
-	assertHex(t, command.LEDValues.Colors[2], "#FF0000")
+	assertHex(t, command.LEDValues.Colors[0], CheckinOrange)
+	assertHex(t, command.LEDValues.Colors[1], CheckinOrange)
+	assertHex(t, command.LEDValues.Colors[2], CheckinOrange)
 	status := app.DebugStatus()
 	if !status.PendingUntil.IsZero() {
 		t.Fatalf("PendingUntil = %s, want cleared after expired pending fallback", status.PendingUntil)
