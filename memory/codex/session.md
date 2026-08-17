@@ -73,6 +73,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Corrected `CheckinOrange` semantics again: it applies only to visible current-booking LEDs while `checkinConfirmed=false`; checked-in current bookings are red. Onsite check-in has two auth modes: service-user check-in when unauthorized actions are enabled, or user/PIN authentication before check-in otherwise.
 - Implemented option 1 for NFC check-in: legacy v1 `PUT /bookings/{id}/checkin` as the authenticated Rooms API user with no `pin` query parameter. NFC taps now check in the current unchecked booking, keep the checked-in booking locally to avoid stale orange repainting, and push an orange-to-red sweep over only the visible current-booking LEDs.
 - Fixed live closed-hours rendering report: when `freebusy` says the whole hour is busy because the resource is outside opening hours, but an active booking is known and exact ranges are missing, the renderer now shows only the active booking range. Regression covers a 23:30-23:45 booking at 23:42: one LED orange before check-in and one LED red after check-in.
+- Rebuilt `pukk-test.exe` after Windows Defender flagged the prior executable. Source scan found no shell execution/downloader/registry/unsafe imports and `go.mod` has no third-party dependencies. Fresh build used `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o pukk-test.exe .`; SHA-256 is `b969168c15e4df023dab095fbcbb0dad2ad9fff231b551994a6cfa82f8d4c8b6`.
 
 ## Open questions / blockers
 
