@@ -151,10 +151,8 @@ func (c *RoomsHTTPClient) CheckInBooking(ctx context.Context, booking Booking) (
 	if id == 0 {
 		return nil, errors.New("cannot check in booking without id")
 	}
-	values := url.Values{}
-	values.Set("pin", c.cfg.Password)
 	var checkedIn Booking
-	if err := c.doJSON(ctx, http.MethodPut, c.apiPath(fmt.Sprintf("/api/v1.0/bookings/%d/checkin", id), values), nil, &checkedIn); err != nil {
+	if err := c.doJSON(ctx, http.MethodPut, c.apiPath(fmt.Sprintf("/api/v1.0/bookings/%d/checkin", id), nil), nil, &checkedIn); err != nil {
 		return nil, err
 	}
 	return &checkedIn, nil

@@ -24,7 +24,7 @@ Implemented on 2026-08-13 as a single Go module in `/workspaces/pukk-test`.
 - `device_client.go` pushes the rendered ring to the PuKK's local REST API (`POST http://<device-ip>/api/setLeds/individual`) on every poll when a real device IP is known. This is needed because live testing indicated the PuKK may not consume LED commands returned in the poll response.
 - `cache.go` over-fetches `[now bucket, now bucket + 75min]` by default, requests Rooms `freebusy` at 1-minute resolution, infers the actual returned source interval from bitstring length when Rooms returns 1/5/15-minute buckets, aggregates that into 12 rolling five-minute LEDs from the current poll time, trims coarse fallback busy-run edges to avoid premature red LEDs, and treats unknown slices as busy. In normal successful refreshes, exact booking ranges from `bookings/find` decide red booked slots; freebusy remains fallback/diagnostic data. Because 3V Rooms can return non-binary status IDs in `FreeBusyData`, any non-zero status is parsed as busy for fallback rendering.
 - The display window is rolling from `now`, not fixed to wall-clock `:00/:05` buckets. Future booking/freebusy slots are marked busy by slot midpoint, while active/current ranges still use overlap. Example: at 23:53, a 00:00-00:15 booking renders `GRRRGGGGGGGG`.
-- `app.go` implements short-press extend/ad-hoc selection with a 5s commit window, NFC event acceptance, and 3s longpress release/checkout. NFC is currently visual-only and does not call Rooms check-in. Longpress checkout pushes a blue sweep over the current booking LEDs from the meeting end back toward now, releases the booking in Rooms, then sweeps those LEDs green.
+- `app.go` implements short-press extend/ad-hoc selection with a 5s commit window, NFC check-in, and 3s longpress release/checkout. NFC accepts any tag, checks in the current unchecked booking in Rooms, keeps the checked-in state locally, and pushes an orange-to-red sweep over the changed current-booking LEDs. Longpress checkout pushes a blue sweep over the current booking LEDs from the meeting end back toward now, releases the booking in Rooms, then sweeps those LEDs green.
 - Button provisional commits are guarded by a generation token so stale timers from earlier button presses cannot commit after a later press reset the 5s window.
 - Poll has a fallback for expired provisional selections: if the 5s deadline has passed but the timer callback has not run, the poll removes the pending overlay, renders the selection optimistically as busy, and commits in the background.
 - Successful local ad-hoc/extend commits are rendered optimistically as the active busy booking immediately, even if 3V Rooms `freebusy` or active-booking lookup lags behind.
@@ -36,7 +36,7 @@ Implemented on 2026-08-13 as a single Go module in `/workspaces/pukk-test`.
   - active/upcoming booking lookup: v2 `/bookings/find`
   - ad-hoc booking: v2 `/bookings/quickbooking`
   - extend: v1 `PUT /bookings/{id}?end=...`
-  - checkin: v1 `PUT /bookings/{id}/checkin?pin=...`
+  - checkin: v1 `PUT /bookings/{id}/checkin` as the authenticated API/service user, without a `pin` query parameter
   - checkout/release: v1 `cancheckout`, then `checkout?sendMail=false` or `release`
 - The Rooms booking decoder accepts the documented `BookingDto` `Begin`/`End` fields, the app's internal `start`/`end` names, and `RessourceId`/`resourceId` spellings. This prevents exact bookings from being discarded while `freebusy` still shows broad busy intervals.
 
@@ -48,7 +48,7 @@ Smoke run inside the devcontainer showed only `172.17.0.3`, a Docker bridge addr
 
 ## Known risks
 
-- PuKK device-local REST push is implemented for the ambient ring on every poll and longpress checkout blue-to-green sweep. NFC events are accepted but currently do not push a separate animation or mutate Rooms.
+- PuKK device-local REST push is implemented for the ambient ring on every poll, longpress checkout blue-to-green sweep, and NFC check-in orange-to-red sweep.
 - The active-booking lookup uses the documented v2 `bookings/find` filters, but this still needs live-tenant verification with resource 44.
 - The Windows executable is a local build artifact and is ignored by git.
 - Windows Firewall or WiFi client isolation can still block the PuKK even when the app runs on the Windows host. Use `http://<windows-wifi-ip>:5000/healthz` from another device on WiFi as the first test.

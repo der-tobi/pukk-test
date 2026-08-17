@@ -71,11 +71,12 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Temporarily made NFC visual-only after the v1 check-in failure; NFC events are accepted but make no Rooms mutation.
 - Local Rooms source finding: v1 check-in with non-empty `pin` checks reservation `DoormanList` PINs. The startup API password is not an appropriate `pin`. The newer Rooms UI check-in path appears to use authenticated authorization rather than the legacy v1 PIN semantics.
 - Corrected `CheckinOrange` semantics again: it applies only to visible current-booking LEDs while `checkinConfirmed=false`; checked-in current bookings are red. Onsite check-in has two auth modes: service-user check-in when unauthorized actions are enabled, or user/PIN authentication before check-in otherwise.
+- Implemented option 1 for NFC check-in: legacy v1 `PUT /bookings/{id}/checkin` as the authenticated Rooms API user with no `pin` query parameter. NFC taps now check in the current unchecked booking, keep the checked-in booking locally to avoid stale orange repainting, and push an orange-to-red sweep over only the visible current-booking LEDs.
 
 ## Open questions / blockers
 
-- Live tenant/device verification remains: active-booking lookup filters against `bookings/find`, especially whether `/debug/status.exactBusyRanges` now contains `Begin`/`End` bookings from the tenant; NFC `pin` behavior; and whether the PuKK accepts the exact `set_leds_individual` response shape as documented.
-- Dedicated device-local REST animation is implemented for longpress checkout. NFC is currently visual-only and does not mutate Rooms until the correct check-in endpoint/auth flow is chosen.
+- Live tenant/device verification remains: active-booking lookup filters against `bookings/find`, especially whether `/debug/status.exactBusyRanges` now contains `Begin`/`End` bookings from the tenant; NFC no-`pin` check-in behavior; and whether the PuKK accepts the exact `set_leds_individual` response shape as documented.
+- Dedicated device-local REST animation is implemented for longpress checkout and NFC check-in. If the no-`pin` v1 check-in call still fails in the live tenant, try the newer authenticated RoomsPro `POST /bookings/{id}/checkin` path next.
 - Immediate blue extension/undo button animations are implemented for short/double/multiple press handling. Desired behavior and current implementation notes are recorded in `memory/button_animation_feedback.md`.
 - If the ring remains blue after the rebuilt binary, check `/debug/status`: `lastBlueLeds` should be 0, `lastLedHex` should show `#00FF00` for free LEDs, and `lastDevicePushError` will show whether the local PuKK REST call failed.
 - Exact interaction capping depends on successful `bookings/find` refreshes. If `/debug/status.exactBusyKnown` is false even after the on-demand button refresh, button selection no longer uses `freebusy` as a veto; the subsequent Rooms mutation may still reject an overlap.
@@ -87,6 +88,6 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Live-test immediate button feedback animation on the physical PuKK and tune the default 100ms frame delay if it feels too slow or too fast.
 - Live-test the exact interaction cap with a non-15-minute gap before the next booking and verify `/debug/status.exactBusyRanges` contains that next booking before pressing the button.
 - Live-test the longpress checkout sweep on the physical PuKK and tune the default 100ms frame delay if needed.
-- Decide whether to implement real Rooms check-in through the newer authenticated `POST /bookings/{id}/checkin` path, or keep NFC as a visual-only demo.
+- Live-test NFC check-in with the no-`pin` v1 endpoint. If it still fails, implement the newer authenticated `POST /bookings/{id}/checkin` path as the next fallback.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.

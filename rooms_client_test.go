@@ -173,3 +173,57 @@ func TestRoomsClientFindBookingsDecodesPagedPascalGermanFields(t *testing.T) {
 		t.Fatalf("booking end = %s", got)
 	}
 }
+
+func TestRoomsClientCheckInBookingUsesAuthenticatedUserWithoutPin(t *testing.T) {
+	var checkinMethod string
+	var checkinPath string
+	var checkinQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "token-1"})
+		case "/default/api/v1.0/bookings/7/checkin":
+			checkinMethod = r.Method
+			checkinPath = r.URL.Path
+			checkinQuery = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Id":               7,
+				"RessourceId":      44,
+				"Begin":            "2026-08-13T10:00:00Z",
+				"End":              "2026-08-13T10:15:00Z",
+				"CheckinConfirmed": true,
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewRoomsHTTPClient(RoomsConfig{
+		AuthBaseURL: server.URL,
+		APIBaseURL:  server.URL,
+		Mandator:    "default",
+		ResourceID:  44,
+		User:        "tobiapi4",
+		Password:    "secret",
+		HTTPClient:  server.Client(),
+	})
+
+	booking, err := client.CheckInBooking(context.Background(), Booking{ID: 7})
+	if err != nil {
+		t.Fatalf("CheckInBooking returned error: %v", err)
+	}
+
+	if checkinMethod != http.MethodPut {
+		t.Fatalf("method = %q, want PUT", checkinMethod)
+	}
+	if checkinPath != "/default/api/v1.0/bookings/7/checkin" {
+		t.Fatalf("path = %q", checkinPath)
+	}
+	if checkinQuery != "" {
+		t.Fatalf("query = %q, want no pin query parameter", checkinQuery)
+	}
+	if booking == nil || !booking.CheckinConfirmed {
+		t.Fatalf("checked-in booking = %#v", booking)
+	}
+}

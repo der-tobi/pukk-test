@@ -652,7 +652,7 @@ func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *te
 	}
 }
 
-func TestNFCTapDoesNotCallRoomsCheckinForVisualOnlyDemo(t *testing.T) {
+func TestNFCTapChecksInCurrentBookingAndSweepsOrangeToRed(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	current := &Booking{
 		ID:               7,
@@ -682,13 +682,14 @@ func TestNFCTapDoesNotCallRoomsCheckinForVisualOnlyDemo(t *testing.T) {
 		t.Fatalf("HandleEvent returned error: %v", err)
 	}
 
-	if frames := device.snapshotFrames(); len(frames) != 0 {
-		t.Fatalf("device frames after NFC = %d, want 0", len(frames))
+	frames := waitForDeviceFrames(t, device, 3)
+	assertLEDValuesPattern(t, frames[0], "ROOGGGGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "RROGGGGGGGGG")
+	assertLEDValuesPattern(t, frames[2], "RRRGGGGGGGGG")
+	if rooms.checkedInID != current.ID {
+		t.Fatalf("checked-in booking id = %d, want %d", rooms.checkedInID, current.ID)
 	}
-	if rooms.checkedInID != 0 {
-		t.Fatalf("checked-in booking id = %d, want no Rooms checkin call", rooms.checkedInID)
-	}
-	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "OOOGGGGGGGGG")
+	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "RRRGGGGGGGGG")
 }
 
 func TestCommittedAdHocBookingRendersRedBeforeFreeBusyCatchesUp(t *testing.T) {
