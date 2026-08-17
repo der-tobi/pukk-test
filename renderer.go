@@ -24,6 +24,8 @@ func RenderRing(input RingInput) LEDCommand {
 		busy := input.Busy[i] || !known
 		if input.ExactKnown {
 			busy = inDisplayRanges(input.Now, slotStart, slotEnd, input.ExactBusy)
+		} else if input.Active != nil {
+			busy = false
 		}
 		var activeRange []TimeRange
 		if input.Active != nil {

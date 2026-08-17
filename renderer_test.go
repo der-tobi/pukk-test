@@ -106,6 +106,46 @@ func TestRenderRingShowsOnlyUncheckedCurrentBookingLEDsAsOrange(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[8], UpcomingViolet)
 }
 
+func TestRenderRingDoesNotLetClosedHoursFallbackExpandCurrentCheckinBooking(t *testing.T) {
+	now := time.Date(2026, 8, 13, 23, 42, 0, 0, time.UTC)
+	command := RenderRing(RingInput{
+		Now:   now,
+		Busy:  slots("111111111111"),
+		Known: slots("111111111111"),
+		Active: &Booking{
+			ID:               7,
+			Start:            time.Date(2026, 8, 13, 23, 30, 0, 0, time.UTC),
+			End:              time.Date(2026, 8, 13, 23, 45, 0, 0, time.UTC),
+			CheckinConfirmed: false,
+		},
+	})
+
+	assertHex(t, command.LEDValues.Colors[0], CheckinOrange)
+	for i := 1; i < 12; i++ {
+		assertHex(t, command.LEDValues.Colors[i], FreeGreen)
+	}
+}
+
+func TestRenderRingDoesNotLetClosedHoursFallbackExpandCheckedInCurrentBooking(t *testing.T) {
+	now := time.Date(2026, 8, 13, 23, 42, 0, 0, time.UTC)
+	command := RenderRing(RingInput{
+		Now:   now,
+		Busy:  slots("111111111111"),
+		Known: slots("111111111111"),
+		Active: &Booking{
+			ID:               7,
+			Start:            time.Date(2026, 8, 13, 23, 30, 0, 0, time.UTC),
+			End:              time.Date(2026, 8, 13, 23, 45, 0, 0, time.UTC),
+			CheckinConfirmed: true,
+		},
+	})
+
+	assertHex(t, command.LEDValues.Colors[0], BusyRed)
+	for i := 1; i < 12; i++ {
+		assertHex(t, command.LEDValues.Colors[i], FreeGreen)
+	}
+}
+
 func slots(pattern string) [12]bool {
 	var result [12]bool
 	for i, c := range pattern {

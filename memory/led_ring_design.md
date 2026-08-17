@@ -27,4 +27,6 @@ The PuKK has 12 LEDs arranged like the 5-minute marks of a clock face. Design se
 
 **Fast feedback outside the poll cycle:** some effects need multiple frames faster than the 5s poll interval. Longpress checkout pushes a blue sweep over the current booking LEDs from the meeting end toward now, then a green sweep after Rooms release succeeds. NFC check-in pushes an orange-to-red sweep over the unchecked current-booking LEDs after Rooms check-in succeeds. Fast frames are pushed via the device's own local REST API (`http://{device-ip}/api/setLeds...`, see `docs/research/pukk-device-api.md` §6) rather than waiting for the next poll.
 
+**Closed-hours fallback guard (2026-08-17):** if exact booking ranges are unavailable but an active booking is known, the active booking range constrains the rendered busy/check-in LEDs. Coarse `freebusy` can be all-busy outside opening hours, so it must not expand a 15-minute active booking into a full orange/red ring.
+
 **How to apply:** whichever agent implements LED rendering should build the "stateless, recompute every poll" renderer first, then layer the local-API push path on top for the handful of fast one-off animations — don't build them as one system.

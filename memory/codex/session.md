@@ -72,6 +72,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Local Rooms source finding: v1 check-in with non-empty `pin` checks reservation `DoormanList` PINs. The startup API password is not an appropriate `pin`. The newer Rooms UI check-in path appears to use authenticated authorization rather than the legacy v1 PIN semantics.
 - Corrected `CheckinOrange` semantics again: it applies only to visible current-booking LEDs while `checkinConfirmed=false`; checked-in current bookings are red. Onsite check-in has two auth modes: service-user check-in when unauthorized actions are enabled, or user/PIN authentication before check-in otherwise.
 - Implemented option 1 for NFC check-in: legacy v1 `PUT /bookings/{id}/checkin` as the authenticated Rooms API user with no `pin` query parameter. NFC taps now check in the current unchecked booking, keep the checked-in booking locally to avoid stale orange repainting, and push an orange-to-red sweep over only the visible current-booking LEDs.
+- Fixed live closed-hours rendering report: when `freebusy` says the whole hour is busy because the resource is outside opening hours, but an active booking is known and exact ranges are missing, the renderer now shows only the active booking range. Regression covers a 23:30-23:45 booking at 23:42: one LED orange before check-in and one LED red after check-in.
 
 ## Open questions / blockers
 
@@ -89,5 +90,6 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Live-test the exact interaction cap with a non-15-minute gap before the next booking and verify `/debug/status.exactBusyRanges` contains that next booking before pressing the button.
 - Live-test the longpress checkout sweep on the physical PuKK and tune the default 100ms frame delay if needed.
 - Live-test NFC check-in with the no-`pin` v1 endpoint. If it still fails, implement the newer authenticated `POST /bookings/{id}/checkin` path as the next fallback.
+- Re-test the 23:30-23:45 outside-opening-hours NFC flow on the physical PuKK; expected at 23:42 is only LED 0 orange before check-in, then only LED 0 red after check-in.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.
