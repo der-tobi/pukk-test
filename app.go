@@ -870,6 +870,7 @@ func (a *App) clearLocalBooking(booking *Booking) {
 		filtered = append(filtered, busyRange)
 	}
 	a.exactBusy = filtered
+	a.exactBusyKnown = true
 }
 
 func sameBookingIdentityOrRange(a, b Booking) bool {

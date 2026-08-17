@@ -652,6 +652,37 @@ func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *te
 	}
 }
 
+func TestLongPressTerminationDoesNotRepaintClosedHoursFallbackRed(t *testing.T) {
+	now := time.Date(2026, 8, 17, 23, 58, 0, 0, time.UTC)
+	current := &Booking{
+		ID:               7,
+		ResourceID:       44,
+		Start:            time.Date(2026, 8, 17, 23, 30, 0, 0, time.UTC),
+		End:              time.Date(2026, 8, 17, 23, 59, 0, 0, time.UTC),
+		CheckinConfirmed: true,
+	}
+	device := &recordingDeviceController{done: make(chan struct{}, 20)}
+	rooms := &recordingRooms{freeBusy: "111111111111111", currentBooking: current}
+	app := NewApp(rooms, AppConfig{
+		ResourceID:                44,
+		Now:                       func() time.Time { return now },
+		ButtonAnimationFrameDelay: time.Millisecond,
+		DeviceController:          device,
+		DevicePushTimeout:         time.Second,
+		Logger:                    discardLogger{},
+	})
+	if err := app.RefreshAvailability(context.Background()); err != nil {
+		t.Fatalf("RefreshAvailability returned error: %v", err)
+	}
+
+	if err := app.HandleEvent(context.Background(), "long_press_3s", "abc", "192.0.2.10"); err != nil {
+		t.Fatalf("HandleEvent returned error: %v", err)
+	}
+
+	now = time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "GGGGGGGGGGGG")
+}
+
 func TestNFCTapChecksInCurrentBookingAndSweepsOrangeToRed(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	current := &Booking{

@@ -227,3 +227,45 @@ func TestRoomsClientCheckInBookingUsesAuthenticatedUserWithoutPin(t *testing.T) 
 		t.Fatalf("checked-in booking = %#v", booking)
 	}
 }
+
+func TestRoomsClientReleaseBookingAcceptsTimezoneLessBookingResponse(t *testing.T) {
+	var checkoutPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "token-1"})
+		case "/default/api/v1.0/bookings/7/cancheckout":
+			_ = json.NewEncoder(w).Encode(true)
+		case "/default/api/v1.0/bookings/7/checkout":
+			checkoutPath = r.URL.Path
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Id":               7,
+				"RessourceId":      44,
+				"Begin":            "2026-08-17T21:30:00",
+				"End":              "2026-08-17T21:59:00",
+				"CheckinConfirmed": true,
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewRoomsHTTPClient(RoomsConfig{
+		AuthBaseURL: server.URL,
+		APIBaseURL:  server.URL,
+		Mandator:    "default",
+		ResourceID:  44,
+		User:        "tobiapi4",
+		Password:    "secret",
+		HTTPClient:  server.Client(),
+	})
+
+	if err := client.ReleaseBooking(context.Background(), Booking{ID: 7}); err != nil {
+		t.Fatalf("ReleaseBooking returned error: %v", err)
+	}
+
+	if checkoutPath != "/default/api/v1.0/bookings/7/checkout" {
+		t.Fatalf("checkout path = %q", checkoutPath)
+	}
+}

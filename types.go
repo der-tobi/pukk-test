@@ -69,45 +69,22 @@ type Booking struct {
 }
 
 func (b *Booking) UnmarshalJSON(data []byte) error {
-	type bookingAlias Booking
-	var raw bookingAlias
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	*b = Booking(raw)
-
 	fields := map[string]json.RawMessage{}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
 
-	if b.ID == 0 {
-		b.ID = firstJSONInt(fields, "id", "Id", "ID")
-	}
-	if b.ReservationID == 0 {
-		b.ReservationID = firstJSONInt(fields, "reservationId", "ReservationId", "ReservationID")
-	}
-	if b.ResourceID == 0 {
-		b.ResourceID = firstJSONInt(fields, "resourceId", "ResourceId", "ResourceID")
-	}
-	if b.RessourceID == 0 {
-		b.RessourceID = firstJSONInt(fields, "ressourceId", "RessourceId", "RessourceID")
-	}
+	b.ID = firstJSONInt(fields, "id", "Id", "ID")
+	b.ReservationID = firstJSONInt(fields, "reservationId", "ReservationId", "ReservationID")
+	b.ResourceID = firstJSONInt(fields, "resourceId", "ResourceId", "ResourceID")
+	b.RessourceID = firstJSONInt(fields, "ressourceId", "RessourceId", "RessourceID")
 	if b.ResourceID == 0 && b.RessourceID == 0 {
 		b.RessourceID = nestedJSONInt(fields, "resource", "Resource", "ressource", "Ressource")
 	}
-	if b.Title == "" {
-		b.Title = firstJSONString(fields, "title", "Title")
-	}
-	if b.Start.IsZero() {
-		b.Start = firstJSONTime(fields, "start", "Start", "begin", "Begin", "beginn", "Beginn")
-	}
-	if b.End.IsZero() {
-		b.End = firstJSONTime(fields, "end", "End", "ende", "Ende")
-	}
-	if !b.CheckinConfirmed {
-		b.CheckinConfirmed = firstJSONBool(fields, "checkinConfirmed", "CheckinConfirmed")
-	}
+	b.Title = firstJSONString(fields, "title", "Title")
+	b.Start = firstJSONTime(fields, "start", "Start", "begin", "Begin", "beginn", "Beginn")
+	b.End = firstJSONTime(fields, "end", "End", "ende", "Ende")
+	b.CheckinConfirmed = firstJSONBool(fields, "checkinConfirmed", "CheckinConfirmed", "isCheckedIn", "IsCheckedIn")
 	return nil
 }
 
