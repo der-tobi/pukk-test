@@ -76,6 +76,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Rebuilt `pukk-test.exe` after Windows Defender flagged the prior executable. Source scan found no shell execution/downloader/registry/unsafe imports and `go.mod` has no third-party dependencies. Fresh build used `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o pukk-test.exe .`; SHA-256 is `b969168c15e4df023dab095fbcbb0dad2ad9fff231b551994a6cfa82f8d4c8b6`.
 - Fixed live longpress termination follow-up: Rooms checkout/release can return successful `BookingDto` timestamps without timezone offsets, e.g. `2026-08-17T21:59:00`; the decoder now accepts those instead of returning an error after Rooms already terminated the booking. Successful checkout also marks local exact ranges as authoritative after clearing the booking, so closed-hours `freebusy` cannot repaint the released room red on the next poll.
 - Checked the code/docs for the yellowish button flash. The app has no yellow/amber command path; likely source is PuKK firmware-side press feedback before/while the classified event reaches the server. No documented server-side setting to disable it was found.
+- Tuned check-in-required orange for the physical PuKK from `#FF9D09` to vivid `#FF6A00`, because the old orange did not stand out enough beside pure green. Added a regression pinning the high-contrast orange.
 
 ## Open questions / blockers
 

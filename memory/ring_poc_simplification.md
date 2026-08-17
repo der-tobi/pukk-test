@@ -12,12 +12,12 @@ On 2026-08-14, after live PuKK testing, the ring UX was simplified for the PoC.
 Use a small ambient color set:
 
 - Pending/provisional button selection = blue `#006DFF`
-- Current booking requiring check-in = orange `#FF9D09`
+- Current booking requiring check-in = vivid orange `#FF6A00`
 - Checked-in/current busy range = red `#FF0000`
 - Later busy/booked ranges in the visible hour = violet `#7D00B3`
 - Free = bright green `#00FF00`
 
-Do not use the earlier red-to-green gradient or brightness pulsing in the normal poll-rendered ring. The original `#00FF7F` free color looked blue/turquoise on the physical device and was replaced with pure green `#00FF00`; the original red was replaced with pure red `#FF0000`. Only the visible LEDs belonging to the current booking render orange, and only while Rooms reports `checkinConfirmed=false`; checked-in current bookings render red. Later visible busy ranges are violet. Pending button selections render blue during the commit window and animate via device-local REST push.
+Do not use the earlier red-to-green gradient or brightness pulsing in the normal poll-rendered ring. The original `#00FF7F` free color looked blue/turquoise on the physical device and was replaced with pure green `#00FF00`; the original red was replaced with pure red `#FF0000`; the check-in orange was changed from `#FF9D09` to `#FF6A00` so it pops beside green without collapsing into red. Only the visible LEDs belonging to the current booking render orange, and only while Rooms reports `checkinConfirmed=false`; checked-in current bookings render red. Later visible busy ranges are violet. Pending button selections render blue during the commit window and animate via device-local REST push.
 
 The live PoC ring is rolling from the current poll time, not fixed to wall-clock `:00/:05/...` buckets. Future bookings are assigned to LEDs by the midpoint of each 5-minute LED slot. Example: at 23:44, a 00:00-00:15 meeting should render as first quarter green, second quarter red, left half green. At 23:53, that same 00:00-00:15 meeting should render `GRRRGGGGGGGG`: first LED green, next three LEDs red, remaining LEDs green.
 

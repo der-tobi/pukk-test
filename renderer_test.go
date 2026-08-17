@@ -106,6 +106,12 @@ func TestRenderRingShowsOnlyUncheckedCurrentBookingLEDsAsOrange(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[8], UpcomingViolet)
 }
 
+func TestCheckinOrangeUsesHighContrastLiveDeviceColor(t *testing.T) {
+	if CheckinOrange != "#FF6A00" {
+		t.Fatalf("CheckinOrange = %s, want #FF6A00", CheckinOrange)
+	}
+}
+
 func TestRenderRingDoesNotLetClosedHoursFallbackExpandCurrentCheckinBooking(t *testing.T) {
 	now := time.Date(2026, 8, 13, 23, 42, 0, 0, time.UTC)
 	command := RenderRing(RingInput{
