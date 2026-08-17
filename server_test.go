@@ -303,6 +303,82 @@ func TestShortPressesShowFifteenMinuteBlueStepsOnEmptyResource(t *testing.T) {
 	assertColorPrefix(t, app.Poll("abc", "192.0.2.10"), 9, ProvisionalBlue)
 }
 
+func TestAdHocPressesCapAtExactNextBookingStart(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	nextStart := time.Date(2026, 8, 13, 10, 23, 0, 0, time.UTC)
+	rooms := &recordingRooms{
+		freeBusy: "000000000000000",
+		bookings: []Booking{{
+			ID:               11,
+			ResourceID:       44,
+			Start:            nextStart,
+			End:              time.Date(2026, 8, 13, 10, 45, 0, 0, time.UTC),
+			CheckinConfirmed: true,
+		}},
+	}
+	app := NewApp(rooms, AppConfig{
+		ResourceID: 44,
+		Now:        func() time.Time { return now },
+		CommitWait: time.Hour,
+		Logger:     discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+
+	app.handleShortPress()
+	app.handleShortPress()
+	if err := app.CommitPending(context.Background()); err != nil {
+		t.Fatalf("CommitPending returned error: %v", err)
+	}
+
+	if rooms.created.Start != now || rooms.created.End != nextStart {
+		t.Fatalf("created range = %s..%s, want %s..%s", rooms.created.Start, rooms.created.End, now, nextStart)
+	}
+}
+
+func TestActiveBookingPressesCapExtensionAtExactNextBookingStart(t *testing.T) {
+	now := time.Date(2026, 8, 13, 9, 55, 0, 0, time.UTC)
+	current := &Booking{
+		ID:               7,
+		ResourceID:       44,
+		Start:            time.Date(2026, 8, 13, 9, 30, 0, 0, time.UTC),
+		End:              time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		CheckinConfirmed: true,
+	}
+	nextStart := time.Date(2026, 8, 13, 10, 23, 0, 0, time.UTC)
+	rooms := &recordingRooms{
+		freeBusy:       "000000000000000",
+		currentBooking: current,
+		bookings: []Booking{{
+			ID:               11,
+			ResourceID:       44,
+			Start:            nextStart,
+			End:              time.Date(2026, 8, 13, 10, 45, 0, 0, time.UTC),
+			CheckinConfirmed: true,
+		}},
+	}
+	app := NewApp(rooms, AppConfig{
+		ResourceID: 44,
+		Now:        func() time.Time { return now },
+		CommitWait: time.Hour,
+		Logger:     discardLogger{},
+	})
+	if err := app.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+
+	app.handleShortPress()
+	app.handleShortPress()
+	if err := app.CommitPending(context.Background()); err != nil {
+		t.Fatalf("CommitPending returned error: %v", err)
+	}
+
+	if rooms.extendedID != current.ID || rooms.extendedEnd != nextStart {
+		t.Fatalf("extended booking %d to %s, want booking %d to %s", rooms.extendedID, rooms.extendedEnd, current.ID, nextStart)
+	}
+}
+
 func TestActiveBookingPressExtendsToVisibleHourEdgeWhenOnlyTenMinutesFree(t *testing.T) {
 	now := time.Date(2026, 8, 13, 17, 10, 0, 0, time.UTC)
 	current := &Booking{

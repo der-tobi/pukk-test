@@ -417,7 +417,7 @@ func (a *App) handleShortPressForDevice(mac, deviceIP string) {
 		a.pending.deviceIP = deviceIP
 	}
 
-	a.pending.Step(a.maxSelectableEnd(now, a.pending.baseEnd))
+	a.pending.Step(a.maxSelectableEnd(now, a.pending.baseEnd, exactBusy, exactBusyKnown))
 	a.resetPendingTimerLocked(now)
 	generation := a.pendingGeneration
 	afterEnd := a.pending.CurrentEnd()
@@ -436,8 +436,24 @@ func (a *App) handleShortPressForDevice(mac, deviceIP string) {
 	a.animateLEDTransitionAsync(deviceIP, generation, before, after, indexes)
 }
 
-func (a *App) maxSelectableEnd(now, baseEnd time.Time) time.Time {
+func (a *App) maxSelectableEnd(now, baseEnd time.Time, exactBusy []TimeRange, exactBusyKnown bool) time.Time {
 	windowEnd := now.Add(time.Hour)
+	if exactBusyKnown {
+		maxEnd := windowEnd
+		for _, busyRange := range exactBusy {
+			if busyRange.Empty() || !busyRange.End.After(baseEnd) {
+				continue
+			}
+			if !busyRange.Start.After(baseEnd) {
+				return baseEnd
+			}
+			if busyRange.Start.Before(maxEnd) {
+				maxEnd = busyRange.Start
+			}
+		}
+		return maxEnd
+	}
+
 	snapshot := a.cache.Snapshot(now)
 	interval := 5 * time.Minute
 	for i := 0; i < 12; i++ {

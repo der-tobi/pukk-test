@@ -29,6 +29,7 @@ Implemented on 2026-08-13 as a single Go module in `/workspaces/pukk-test`.
 - Poll has a fallback for expired provisional selections: if the 5s deadline has passed but the timer callback has not run, the poll removes the pending overlay, renders the selection optimistically as busy, and commits in the background.
 - Successful local ad-hoc/extend commits are rendered optimistically as the active busy booking immediately, even if 3V Rooms `freebusy` or active-booking lookup lags behind.
 - Empty-resource button presses render blue in 15-minute pending steps: 1 press = 15min, 2 = 30min, 3 = 45min. For active bookings, one press extends only to the visible `now+60min` edge if less than 15 minutes remain in that visible hour. Button add frames animate blue clockwise, undo frames animate green counter-clockwise, and commit frames animate blue to red clockwise.
+- When exact `bookings/find` ranges are known, button extension/ad-hoc selection is capped by the exact next booking start, not by coarse 5/15-minute `freebusy` slots. A 23-minute free gap can now be filled exactly to the next meeting boundary.
 - `rooms_client.go` implements the 3V Rooms HTTP adapter:
   - token: `POST /connect/token` with `grant_type=basic`, `client_id=basic-auth`, `scope=rooms_api`, `user=tobiapi4`
   - freebusy: v2 `/ressources/44/freebusy`

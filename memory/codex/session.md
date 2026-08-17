@@ -5,6 +5,8 @@ Update this file at the end of every session. Keep it current so the next sessio
 ## Current focus
 
 - Debugged live PuKK ring staying blue/turquoise, the last busy LED staying on after a meeting ended, and a `00:00` booking appearing as immediate first-15-minutes busy/right-half busy. Committed the now-working PoC baseline and implemented immediate blue button-extension animation.
+- 2026-08-17 context check: user asked where we left off. Repository is on `main` with a clean working tree. Latest commit is `41d6787` (`Record exact meeting-time cache follow-up`); no code changes were made in this check.
+- 2026-08-17 implementation: completed the exact next-meeting cap for button ad-hoc/extension interactions.
 
 ## Decisions made this session
 
@@ -49,6 +51,9 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Investigated follow-up live report: at 00:52 with a 01:00 meeting, LEDs 1-8 were red. Added a regression for coarse 15-minute FreeBusy fallback at 00:52 and trimmed coarse busy-run edges so the first two 5-minute LEDs stay green (`GGRRRRRRGGGG`) when exact ranges are unavailable. Added debug fields for exact booking refresh status/count.
 - Investigated live report: at 01:01 with a 01:15-01:45 meeting, LEDs 1-9 were red. Added a regression for the expected exact pattern (`GGGRRRRRRGGG`). Found the likely cause in the Rooms adapter: `BookingDto` uses `Begin`/`End`, while the PoC only decoded `start`/`end`, so exact bookings could be fetched but filtered out as zero-time records. Added tolerant decoding for `Begin`/`End`, `start`/`end`, and resource spelling variants.
 - User noted a next-iteration need: cache exact meeting times for at least the next rolling hour so extension/ad-hoc interactions can fill exact gaps before the next meeting, such as a 23-minute free gap, instead of being limited by coarse FreeBusy or fixed 15-minute steps. Recorded this in `memory/booking_cache_design.md`; not implemented yet.
+- Implemented that exact interaction cap. When `bookings/find` exact ranges are known, `maxSelectableEnd` now uses the first exact busy range after the pending base end as the cap; cached `freebusy` slots remain the fallback only when exact ranges are unknown.
+- Added regression tests for both empty-resource ad-hoc booking and active-booking extension with a next booking at a non-15-minute boundary (`10:23`), verifying both commit exactly to that next start.
+- Verified `go test ./...`, `go build ./...`, `GOOS=windows GOARCH=amd64 go build -o pukk-test.exe .`, and `git diff --check`.
 
 ## Open questions / blockers
 
@@ -56,12 +61,13 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Dedicated device-local REST animations for fast NFC/longpress feedback are still not implemented; ambient ring pushes are implemented.
 - Immediate blue extension/undo button animations are implemented for short/double/multiple press handling. Desired behavior and current implementation notes are recorded in `memory/button_animation_feedback.md`.
 - If the ring remains blue after the rebuilt binary, check `/debug/status`: `lastBlueLeds` should be 0, `lastLedHex` should show `#00FF00` for free LEDs, and `lastDevicePushError` will show whether the local PuKK REST call failed.
+- Exact interaction capping depends on successful `bookings/find` refreshes. If `/debug/status.exactBusyKnown` is false, button selection still falls back to coarse cached `freebusy` slots.
 
 ## Next steps
 
 - Run the rebuilt binary against the real PuKK and check terminal `availabilityBits`, `/debug/status.exactBusyRanges`, `/debug/status.lastLedHex`, and `/debug/status.lastDevicePushError`.
 - Implement optional PuKK device-local REST push animations for NFC/longpress after ambient REST push is verified.
 - Live-test immediate button feedback animation on the physical PuKK and tune the default 100ms frame delay if it feels too slow or too fast.
-- Implement next-hour exact meeting-time caching for interaction capping, so button extension/ad-hoc selection can stop at the precise next booking start even when the gap is not a multiple of 15 minutes.
+- Live-test the exact interaction cap with a non-15-minute gap before the next booking and verify `/debug/status.exactBusyRanges` contains that next booking before pressing the button.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.
