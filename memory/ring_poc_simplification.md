@@ -23,6 +23,8 @@ The live PoC ring is rolling from the current poll time, not fixed to wall-clock
 
 If an active booking is extended so it ends exactly when a follow-up booking starts, the follow-up remains violet. Current/active booking color is based on active-booking overlap, not on the first contiguous busy run in the ring.
 
+For a checked-in current booking in its last five minutes, only the current LED (index 0 / physical first LED) enters disco mode and cycles through bright pink/cyan/white/purple frames at the normal poll cadence. Unchecked bookings stay orange so the check-in-required state remains actionable, and provisional button blue still overrides disco.
+
 ## Button UX
 
 On button presses against an empty resource:
