@@ -33,6 +33,4 @@ The PuKK has 12 LEDs arranged like the 5-minute marks of a clock face. Design se
 
 **Adjacent active/follow-up boundary (2026-08-18):** when a current booking is extended exactly to the next booking's start, the renderer must still keep the follow-up booking violet. Do not infer "first busy range" purely from contiguous busy LEDs when an active booking is known; active/current slots are red or orange, and non-active exact busy slots remain upcoming-violet even if they touch the active booking with no green gap.
 
-**Last-five-minutes disco mode (2026-08-18):** for a checked-in active booking with five minutes or less remaining, the current LED only (index 0 / physical first LED at 12 o'clock) cycles through a bright disco palette on each poll. Check-in-required orange still takes precedence for unchecked bookings, and provisional blue still takes precedence for button feedback.
-
 **How to apply:** whichever agent implements LED rendering should build the "stateless, recompute every poll" renderer first, then layer the local-API push path on top for the handful of fast one-off animations — don't build them as one system.

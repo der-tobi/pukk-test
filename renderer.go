@@ -18,7 +18,6 @@ func RenderRing(input RingInput) LEDCommand {
 	activeSlots := make([]bool, 12)
 	checkinSlots := make([]bool, 12)
 	provisionalSlots := make([]bool, 12)
-	lastFiveMinutes := input.Active != nil && input.Active.CheckinConfirmed && input.Active.End.After(input.Now) && input.Active.End.Sub(input.Now) <= 5*time.Minute
 	for i := range colors {
 		slotStart := input.Now.Add(time.Duration(i) * 5 * time.Minute)
 		slotEnd := slotStart.Add(5 * time.Minute)
@@ -68,9 +67,6 @@ func RenderRing(input RingInput) LEDCommand {
 		if checkinSlots[i] {
 			hex = CheckinOrange
 		}
-		if lastFiveMinutes && i == 0 && activeSlots[i] {
-			hex = discoColor(input.Now)
-		}
 		if provisionalSlots[i] {
 			hex = ProvisionalBlue
 		}
@@ -85,11 +81,6 @@ func RenderRing(input RingInput) LEDCommand {
 			DurationMS: 0,
 		},
 	}
-}
-
-func discoColor(now time.Time) string {
-	palette := []string{DiscoPink, DiscoCyan, DiscoWhite, DiscoPurple}
-	return palette[(now.Second()/5)%len(palette)]
 }
 
 func inDisplayRanges(now, slotStart, slotEnd time.Time, ranges []TimeRange) bool {

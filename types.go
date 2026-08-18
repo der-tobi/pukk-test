@@ -13,10 +13,6 @@ const (
 	FreeGreen       = "#00FF00"
 	ProvisionalBlue = "#006DFF"
 	UpcomingViolet  = "#7D00B3"
-	DiscoPink       = "#FF00FF"
-	DiscoCyan       = "#00D7FF"
-	DiscoWhite      = "#FFFFFF"
-	DiscoPurple     = "#A000FF"
 )
 
 type LEDColor struct {
@@ -46,14 +42,6 @@ func (c LEDColor) Hex() string {
 		return ProvisionalBlue
 	case "#7D00B3":
 		return UpcomingViolet
-	case "#FF00FF":
-		return DiscoPink
-	case "#00D7FF":
-		return DiscoCyan
-	case "#FFFFFF":
-		return DiscoWhite
-	case "#A000FF":
-		return DiscoPurple
 	default:
 		return hex
 	}

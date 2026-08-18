@@ -131,80 +131,6 @@ func TestRenderRingKeepsAdjacentFollowupBookingVioletAfterCurrentExtension(t *te
 	assertRingPattern(t, command, "RRRRRRVVVGGG")
 }
 
-func TestRenderRingShowsDiscoColorOnCurrentLEDForLastFiveMinutes(t *testing.T) {
-	now := time.Date(2026, 8, 18, 10, 55, 0, 0, time.UTC)
-	command := RenderRing(RingInput{
-		Now:        now,
-		Known:      slots("111111111111"),
-		ExactKnown: true,
-		ExactBusy: []TimeRange{
-			{
-				Start: time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC),
-				End:   time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC),
-			},
-			{
-				Start: time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC),
-				End:   time.Date(2026, 8, 18, 11, 15, 0, 0, time.UTC),
-			},
-		},
-		Active: &Booking{
-			ID:               7,
-			Start:            time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC),
-			End:              time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC),
-			CheckinConfirmed: true,
-		},
-	})
-
-	assertHex(t, command.LEDValues.Colors[0], DiscoPink)
-	for i := 1; i < 4; i++ {
-		assertHex(t, command.LEDValues.Colors[i], UpcomingViolet)
-	}
-	for i := 4; i < 12; i++ {
-		assertHex(t, command.LEDValues.Colors[i], FreeGreen)
-	}
-}
-
-func TestRenderRingCyclesDiscoColorEveryFiveSeconds(t *testing.T) {
-	command := RenderRing(RingInput{
-		Now:        time.Date(2026, 8, 18, 10, 55, 5, 0, time.UTC),
-		Known:      slots("111111111111"),
-		ExactKnown: true,
-		ExactBusy: []TimeRange{{
-			Start: time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC),
-			End:   time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC),
-		}},
-		Active: &Booking{
-			ID:               7,
-			Start:            time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC),
-			End:              time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC),
-			CheckinConfirmed: true,
-		},
-	})
-
-	assertHex(t, command.LEDValues.Colors[0], DiscoCyan)
-}
-
-func TestRenderRingDoesNotShowDiscoBeforeLastFiveMinutes(t *testing.T) {
-	now := time.Date(2026, 8, 18, 10, 50, 0, 0, time.UTC)
-	command := RenderRing(RingInput{
-		Now:        now,
-		Known:      slots("111111111111"),
-		ExactKnown: true,
-		ExactBusy: []TimeRange{{
-			Start: time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC),
-			End:   time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC),
-		}},
-		Active: &Booking{
-			ID:               7,
-			Start:            time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC),
-			End:              time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC),
-			CheckinConfirmed: true,
-		},
-	})
-
-	assertHex(t, command.LEDValues.Colors[0], BusyRed)
-}
-
 func TestCheckinOrangeUsesHighContrastLiveDeviceColor(t *testing.T) {
 	if CheckinOrange != "#FF6A00" {
 		t.Fatalf("CheckinOrange = %s, want #FF6A00", CheckinOrange)
@@ -245,7 +171,7 @@ func TestRenderRingDoesNotLetClosedHoursFallbackExpandCheckedInCurrentBooking(t 
 		},
 	})
 
-	assertHex(t, command.LEDValues.Colors[0], DiscoPink)
+	assertHex(t, command.LEDValues.Colors[0], BusyRed)
 	for i := 1; i < 12; i++ {
 		assertHex(t, command.LEDValues.Colors[i], FreeGreen)
 	}
