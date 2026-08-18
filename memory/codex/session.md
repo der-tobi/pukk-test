@@ -78,6 +78,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Checked the code/docs for the yellowish button flash. The app has no yellow/amber command path; likely source is PuKK firmware-side press feedback before/while the classified event reaches the server. No documented server-side setting to disable it was found.
 - Tuned check-in-required orange for the physical PuKK from `#FF9D09` to vivid `#FF6A00`, because the old orange did not stand out enough beside pure green. Added a regression pinning the high-contrast orange.
 - Recorded live rolling-window quantization observation: with bookings `00:00-00:30` and `00:45-01:00`, the visible free gap changed from 2 green LEDs at `00:14` to 3 green LEDs at `00:15`. Likely due to 5-minute LED resolution plus rolling-window anchoring and different current/future quantization rules. User is unsure whether to fix; no code change yet.
+- Fixed adjacent follow-up coloring after extending the current booking to the next booking start. The renderer now tracks active/current slots separately from generic busy slots, so the active booking remains red/orange and the immediately following booking remains violet even when their ranges touch exactly. Added regression pattern `RRRRRRVVVGGG` for current `00:00-00:45`, follow-up `00:45-01:00`, rendered at `00:15`. Rebuilt `pukk-test.exe`; SHA-256 is `2feccd9dbb70db16bc4a9cea016b4a4845cdd7a82d00279f3ab9d296d5571f58`.
 
 ## Open questions / blockers
 
@@ -98,5 +99,6 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Re-test the 23:30-23:45 outside-opening-hours NFC flow on the physical PuKK; expected at 23:42 is only LED 0 orange before check-in, then only LED 0 red after check-in.
 - Re-test 3s termination around midnight/outside opening hours. Expected: blue sweep runs, Rooms terminates, green sweep runs, and subsequent polls stay green instead of reverting to red from closed-hours `freebusy`.
 - Decide whether to smooth/normalize gap length around rolling-window boundary transitions, especially for the `00:00-00:30` + `00:45-01:00` example where the inter-meeting gap visually changed length at `00:15`.
+- Re-test extending a current booking exactly to the next booking's start on the physical PuKK. Expected: current booking LEDs stay red/orange, and the follow-up booking LEDs stay violet with no merged red block.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.

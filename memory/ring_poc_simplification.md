@@ -21,6 +21,8 @@ Do not use the earlier red-to-green gradient or brightness pulsing in the normal
 
 The live PoC ring is rolling from the current poll time, not fixed to wall-clock `:00/:05/...` buckets. Future bookings are assigned to LEDs by the midpoint of each 5-minute LED slot. Example: at 23:44, a 00:00-00:15 meeting should render as first quarter green, second quarter red, left half green. At 23:53, that same 00:00-00:15 meeting should render `GRRRGGGGGGGG`: first LED green, next three LEDs red, remaining LEDs green.
 
+If an active booking is extended so it ends exactly when a follow-up booking starts, the follow-up remains violet. Current/active booking color is based on active-booking overlap, not on the first contiguous busy run in the ring.
+
 ## Button UX
 
 On button presses against an empty resource:

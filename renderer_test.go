@@ -106,6 +106,31 @@ func TestRenderRingShowsOnlyUncheckedCurrentBookingLEDsAsOrange(t *testing.T) {
 	assertHex(t, command.LEDValues.Colors[8], UpcomingViolet)
 }
 
+func TestRenderRingKeepsAdjacentFollowupBookingVioletAfterCurrentExtension(t *testing.T) {
+	now := time.Date(2026, 8, 18, 0, 15, 0, 0, time.UTC)
+	activeStart := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+	followStart := time.Date(2026, 8, 18, 0, 45, 0, 0, time.UTC)
+	followEnd := time.Date(2026, 8, 18, 1, 0, 0, 0, time.UTC)
+
+	command := RenderRing(RingInput{
+		Now:        now,
+		Known:      slots("111111111111"),
+		ExactKnown: true,
+		ExactBusy: []TimeRange{
+			{Start: activeStart, End: followStart},
+			{Start: followStart, End: followEnd},
+		},
+		Active: &Booking{
+			ID:               7,
+			Start:            activeStart,
+			End:              followStart,
+			CheckinConfirmed: true,
+		},
+	})
+
+	assertRingPattern(t, command, "RRRRRRVVVGGG")
+}
+
 func TestCheckinOrangeUsesHighContrastLiveDeviceColor(t *testing.T) {
 	if CheckinOrange != "#FF6A00" {
 		t.Fatalf("CheckinOrange = %s, want #FF6A00", CheckinOrange)
