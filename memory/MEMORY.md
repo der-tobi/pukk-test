@@ -19,12 +19,15 @@ All agents read this file at session start. Add pointers here when creating new 
 - [ring_poc_simplification.md](ring_poc_simplification.md) — live-device simplification: high-contrast ring colors for free, busy, upcoming, pending, and check-in-required states
 - [button_animation_feedback.md](button_animation_feedback.md) — requested immediate blue extension/undo animations on button presses, separate from normal red/green ambient ring
 - [device_led_push.md](device_led_push.md) — live-device finding: push LED state through the PuKK local REST API in addition to poll responses
+- [startup_marketing_sequence.md](startup_marketing_sequence.md) — einmalige fünfsekündige Marketing-Startsequenz mit gesättigten Referenzfarbtönen und Dauerlicht mit abgestimmter Helligkeit
 - [button_state_machine.md](button_state_machine.md) — button extend/undo cycle, 5s commit window, longpress-checkout redefined to device capabilities, NFC
 - [rooms_api_integration.md](rooms_api_integration.md) — which 3V Rooms endpoints/versions we use, booking-ID discovery, auth/token fallback, known gaps to verify
 - [rooms_source_mount.md](rooms_source_mount.md) — local 3V Rooms source/documentation mount paths available for API behavior research after container restart
 - [poc_implementation.md](poc_implementation.md) — current state of the Go PoC implementation, verified commands, and live-device risks
 - `docs/research/3v-rooms-api.md` — primary-source research on the 3V Rooms API (auth, endpoints, freebusy semantics)
 - `docs/research/pukk-device-api.md` — primary-source research on the PuKK device's own protocol (LED commands, button/NFC events, local REST API)
+- `docs/research/marketing-pukk-sources.md` — first-party product/API and LinkedIn-video sources suitable for truthful PoC marketing claims
+- `docs/factsheet-pukk-poc.md` — kurze deutschsprachige Faktenbasis für einen Blogpost: Grundlagen, aktueller Funktionsumfang, Farben, Aktualisierung und PoC-Grenzen (Stand 2026-10-08)
 
 ## Agent session notes
 

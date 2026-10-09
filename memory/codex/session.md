@@ -4,6 +4,7 @@ Update this file at the end of every session. Keep it current so the next sessio
 
 ## Current focus
 
+- 2026-09-09 marketing: created and revised `marketing/linkedin-pukk-poc-videokonzept.md`, a LinkedIn validation plan for the current PuKK x 3V Rooms PoC. The agreed approach is now a three-video series, not a single all-feature demo: video 1 tests NFC check-in, video 2 tests extension plus ad-hoc booking, and video 3 tests 3s-longpress termination. The wider usecase question is intentionally only optional video 4. It includes shotlists, scripts, captions/posts, phone/Sony/GoPro production guidance, and a qualitative response log. The prior 35-45s full demo is retained only as a reserve asset. The key decision is to optimize for qualified problem validation, not raw view count. All proDVX hardware/API facts are separated from the local PoC logic, with a visible "EIGENER POC – nicht produktreif" disclaimer. Primary-source findings are in `docs/research/marketing-pukk-sources.md` and indexed from `memory/MEMORY.md`.
 - Debugged live PuKK ring staying blue/turquoise, the last busy LED staying on after a meeting ended, and a `00:00` booking appearing as immediate first-15-minutes busy/right-half busy. Committed the now-working PoC baseline and implemented immediate blue button-extension animation.
 - 2026-08-17 context check: user asked where we left off. Repository is on `main` with a clean working tree. Latest commit is `41d6787` (`Record exact meeting-time cache follow-up`); no code changes were made in this check.
 - 2026-08-17 implementation: completed the exact next-meeting cap for button ad-hoc/extension interactions.
@@ -103,3 +104,111 @@ Update this file at the end of every session. Keep it current so the next sessio
 - Re-test extending a current booking exactly to the next booking's start on the physical PuKK. Expected: current booking LEDs stay red/orange, and the follow-up booking LEDs stay violet with no merged red block.
 - If a future booking still renders too early, inspect `/debug/status.exactBusyRanges`, `/debug/status.exactBusyKnown`, `/debug/status.exactBusyCount`, `/debug/status.availabilityBits`, and `/debug/status.availabilityIntervalMinutes`; exact ranges should show the real booking start/end decoded from Rooms `Begin`/`End`, and fallback interval should report the inferred interval.
 - From a phone or laptop on the same WiFi, open `http://<windows-wifi-ip>:5000/healthz`; if that fails, fix Windows Firewall/router client isolation before continuing with the PuKK.
+
+## Session 2026-10-08 — Funktionsübersicht
+
+- Current focus: kurze deutschsprachige Übersicht der aktuell implementierten PoC-Funktionen anhand von Go-Code und Projektgedächtnis.
+- Keine Implementierungsänderungen; aktuelle Funktionen: rollender LED-Ring, Rooms-Cache, Ad-hoc/Verlängerung mit Undo und 5s Commit, NFC-Check-in, 3s Checkout, direkte LED-Animationen und Diagnoseendpunkte.
+- Offene Fragen und nächste Schritte: bestehende Live-Geräteprüfungen bleiben bestehen; keine neuen Aufgaben vereinbart.
+
+## Session 2026-10-08 — Tastendruck und Terminieren nach Check-in
+
+- Current focus: user's white button-feedback report and failure to terminate after NFC check-in.
+- Confirmed firmware feedback is light yellow per ProDVX manual FAQ; REST/config schema offers no disable/color setting. App sends no white. Device timing/error details were requested asynchronously but were not available during implementation.
+- Added regression tests first; observed failures for ignored 5s/15s longpress events, missing ring restoration on unchanged selections, and inconsistent immediate-release routing.
+- All 3s/5s/15s longpress events now terminate. No-change button selections re-push existing ring. Rooms uses `checkout/release?sendMail=false` in both check-in states, with server-side release permission checks, without unnecessary response decoding.
+- Findings and preferences recorded in `device_led_push.md`, `button_state_machine.md`, `rooms_api_integration.md`; implementation summary updated.
+- Verification: `go test ./...`, `go build ./...`, Windows amd64 CGO-disabled trimpath build, and `git diff --check` passed. Rebuilt `pukk-test.exe`.
+- Next steps: run new EXE with real PuKK, NFC check-in then longpress; collect the actual event/error if it fails. Firmware feedback during the hold remains outside documented server control. No live device/API mutation performed.
+
+## Session 2026-10-08 — Check-in-Verzögerung und einfaches Longpress-Feedback
+
+- Current focus: user observed red before orange despite a check-in-ready booking; wants a clear 3s release cue and less longpress LED activity.
+- Root cause reproduced: cached upcoming booking was not promoted at its start until the 30s Rooms refresh. Check-in lead/followup timestamps were also ignored. Full booking DTOs are now retained; each poll/event evaluates start and eligibility locally. API DTO mapping confirms lead = Begin minus check-in advance minutes, followup = Begin plus NoShowDelay. NFC can check in a cached eligible upcoming booking before start.
+- User preference: longpress feedback should be useful and simple. Removed both sweeps; send static blue meeting LEDs while Rooms processes release, then one normal ring frame. Poll keeps the blue overlay while waiting; failed release restores normal colors. Pending selection/timer/animation generation is canceled when terminating. Removed unused sweep helpers.
+- Threshold limitation: documented PuKK API has no button-down/up/raw-duration signals. The previous after-release timing statement is an assumption, not an explicit specification guarantee. No reliable server-timed 3s cue while still holding is promised; a live event-timing observation or firmware capability is needed.
+- Tests written first reproduced start/lead-time lag, excessive frames, and poll overwriting processing feedback. New tests cover cached start, early NFC, two-frame checkout, processing poll persistence, and release error restoration.
+- Verification passed: `go test ./...`, `go test -race ./...`, `go build ./...`, Windows amd64 trimpath build, and `git diff --check`. Windows `pukk-test.exe` rebuilt. No live hardware/API mutation was performed.
+- Next steps: run rebuilt EXE; verify orange at check-in-window opening/meeting start, early NFC when allowed, and static checkout feedback. Newly created/changed upstream bookings still arrive through the 30s refresh; cached time boundaries update at device poll cadence. Await user's clarification whether observed readiness preceded meeting start.
+
+## Session 2026-10-08 — Automatischer Check-in bei Gerätebuchung
+
+- Current focus/user preference: creating an ad-hoc booking directly at PuKK should also check it in immediately when check-in is still required.
+- Added tests first and reproduced missing check-in. `commitSelection` now checks in new unchecked bookings after successful create, skips already confirmed creations, and retains successful local confirmation across the immediate post-create refresh.
+- Check-in errors are distinct from creation errors: retain created unchecked booking/ID/time (orange) and return/log the auto-check-in failure. Do not locally revert successful creation. Existing-booking extensions retain their prior behavior.
+- Tests cover required check-in, already confirmed creation, incomplete check-in response, stale immediate refresh, and rejected check-in retaining the booking. Shared behavior recorded in `button_state_machine.md` and implementation summary.
+- Verification passed: `go test ./...`, `go test -race ./...`, `go build ./...`, Windows amd64 CGO-disabled trimpath build, and `git diff --check`. Next step: live-test a device-created check-in-required ad-hoc booking with rebuilt `pukk-test.exe`.
+
+## Session 2026-10-08 — Factsheet für Blogpost-Agent
+
+- Current focus: user requested a short Markdown factsheet in `docs/` for handing to a blogpost-writing agent.
+- Created `docs/factsheet-pukk-poc.md` with general hardware/Go integration foundations, implemented booking/check-in/release behavior, LED legend, polling/cache timing, and material PoC limitations. Includes latest automatic device-booking check-in and simplified longpress feedback.
+- Sources: current implementation and shared memory, existing first-party marketing-source research. Clearly separates own PoC behavior from product capabilities and live verification from automated checks; no credentials included.
+- Added factsheet pointer to shared memory index. Documentation-only changes; checked Markdown/table/link targets and whitespace. No additional code tests needed.
+- Next steps: hand factsheet to writing agent; live verification of recent device interactions remains outstanding.
+
+## Session 2026-10-09 — Marketing-Startsequenz
+
+- Current focus: user's request for three seconds of pulsing reference-image colors after PuKK startup.
+- Extracted all 12 exact RGB values from `12 colored dots.png` via Go's stdlib PNG decoder. Palette order is top first, clockwise.
+- Wrote tests first (red), then implemented `startup_animation.go`: three one-second brightness pulses, synchronized across LEDs, direct individual REST frames every 100ms, three-second context deadline. Enabled in production `main.go`.
+- Trigger explicitly stated: first reachable device poll per server process, because documented events offer no boot notification. Each device runs once; restart server to repeat. Polls preserve running sequence, interactions cancel it, completion renders current cache/state without Rooms mutations.
+- Documented new shared topic in `memory/startup_marketing_sequence.md`, linked it from index, updated factsheet and implementation summary.
+- Passed `go test ./...`, `go test -race ./...`, `go build ./...`, Windows amd64 CGO-disabled trimpath build, and `git diff --check`. Rebuilt `pukk-test.exe`.
+- Next steps: verify reference hues and smoothness on physical PuKK. No live device was available here; source image is retained unchanged.
+
+## Session 2026-10-09 — Live-Fehler: keine Startsequenz / weißer Tastendruck
+
+- Current focus: user reports boot green, no palette sequence on first query, button goes white. Requested first poll/LED error console lines asynchronously; no live log available during implementation.
+- Red tests reproduced invalid callback URLs for mapped IPv4/native IPv6, startup incorrectly consumed on first push failure, and missing ambient LED restoration before slow Rooms lookup.
+- Fixed callback address normalization/bracketing. Verified current manufacturer local API base `/api` and `led_values` shape against embedded spec; kept endpoint/payload unchanged.
+- Startup starts at first device poll, retries boot-time local API readiness up to 5s, then counts 3s from first accepted frame. Failed preparation can retry next poll. Cleanup restores via normal-only poll path, preventing immediate retry loops. Logs show wait/start/end.
+- Short button press restores current colors before an on-demand Rooms lookup, avoiding white while upstream is slow. Cannot suppress firmware white during the physical hold.
+- Passed full tests, race check, Linux/Windows builds, and whitespace check. Windows executable rebuilt. Actual live cause still requires poll source IP and local push errors. Next step: restart user's Windows server with updated EXE and check sequence logs if still absent.
+
+## Session 2026-10-09 — Langsamere, dunklere Marketing-Sequenz
+
+- Current focus/user feedback: animation appeared very late, blinked too fast, colors looked pale. User requests vivid reference hues, preferably darker, slow breathing for 5s, and explanation of interruption.
+- Previous animation could be interrupted by input or failed frame; failed preparation allowed restart on later polls. Exact live timing remains unknown without console logs.
+- Tests written first reproduced incorrect brightness/cycle, competing LED overwrite, and failed initialization losing its once-only marker.
+- Now one 5s cosine breath at 8–45% brightness, preserving original reference RGBs. Serial device writes and startup ownership suppress ambient pushes while running. Individual failed frames no longer end the sequence; startup attempt is never replayed on later polls, even if local API was unavailable. Physical input retains intentional cancellation and now logs it explicitly.
+- Documentation/factsheet updated. Passed full tests, race check, Windows/Linux builds, and whitespace check; Windows rebuild includes final logging change. Next step: test physical appearance with new EXE, restarting the server to repeat initialization. Saturation perception cannot be verified from software tests.
+
+## Session 2026-10-09 — Dauerlicht mit maximaler Sättigung
+
+- Current focus/user feedback: startup sequence now works. User requests removing breathing and maximizing brightness/saturation, analogous to the earlier pure-green correction.
+- Tests changed first; reproduced old reference RGB failing the new saturated-palette expectation (red). Implemented fixed five-second light at 100% brightness with no periodic animation pushes.
+- Palette preserves source hues by subtracting each RGB triplet's shared minimum and scaling its largest channel to 255. Source image stays unchanged; output RGB deliberately differs from original pixels for maximum saturation/value.
+- Integration test verifies only a steady startup frame and normal restoration frame, five-second duration, and preserved once-only/poll/cancellation behavior. Readiness retries and suppression of competing writes remain active.
+- Updated shared startup topic, memory index, implementation summary, and blog factsheet.
+- Verification passed: `go test ./...`, `go test -race ./...`, `go build ./...`, Windows amd64 CGO-disabled trimpath build, and `git diff --check`. Rebuilt `pukk-test.exe`.
+- Next step: restart server with rebuilt EXE and assess new brightness/colors on physical PuKK. Automated tests verify commands and timing; hardware appearance has not been observed here.
+
+## Session 2026-10-09 — Rechte Violetttöne kräftiger abstimmen
+
+- Current focus/user feedback: steady saturated startup looks much better; right-side violet still appears too light. User wants maximum color intensity matching the provided brand image.
+- Existing channels already had full saturation/value and 100% brightness. Reduced red specifically for clockwise LEDs 1–4 (top=0), kept blue 255/green 0: #9000FF, #8800FF, #9800FF, #C000FF. Other colors and five-second steady duration retained.
+- This is manual hue compensation based on live feedback, not measured hardware calibration or a promise of exact image matching. Brand reference is the provided image; no external brand palette assumed.
+- Changed palette expectation first and saw failing test (LED 1 old #E300FF versus #9000FF), then implementation passed full `go test ./...`. Linux/Windows builds and `git diff --check` passed; rebuilt Windows EXE. Race check not repeated for literal palette-only change; concurrency code unchanged from previously passing check.
+- Updated shared startup topic/implementation summary. Next step: restart server with new EXE and assess violet appearance on physical device.
+
+## Session 2026-10-09 — Startfarben ausbalancieren / Bedienung erhalten
+
+- User feedback: previous violet adjustment is acceptable; 12/8 o'clock seem overpowering. User also reports full red after initialization and different button behavior. User will validate later; live diagnostics unavailable.
+- Confirmed last palette-only change did not alter normal state colors. Kept accepted violets; startup LEDs 0 and 7 (top/lower-left pink, aligned to subsequent user photo) now use constant 70% brightness, other positions 100%. Five-second duration retained.
+- Tests first reproduced cancellation cleanup sending an unwanted ambient frame, plus brightness imbalance. Removed that extra push after interaction cancellation. Natural completion now restores only the display synchronously, using the initializer's cancellation context; it cannot trigger selection commits or enqueue an unbound ambient write.
+- Regression tests verify confirmed free room restores green and short press still selects 15 minutes blue; canceled initializer sends no ambient frame; queued restoration honors cancellation; expired pending selection remains uncommitted by display restoration.
+- Full tests and full race check passed after production changes; extra restoration tests also passed with race check. Linux/Windows builds and whitespace check passed, Windows EXE rebuilt.
+- Shared startup memory/implementation summary/factsheet updated. Exact cause of the reported live red ring remains open without Rooms refresh logs/status: preserve fail-closed unknown slots rather than forcing green. Next step: user's deferred hardware validation with rebuilt EXE, including short press and actual Rooms status after five seconds.
+
+- Subsequent user photo confirms bright pink top/lower-left and pale-looking right violets. Lower-left adjustment targets the pink palette entry 7, rather than neighboring red entry 8; user calls this area 8 o'clock. Exact optical orientation is uncalibrated. Kept accepted violets. Added red/green regression for canceling a finished sequence's still-queued restoration context; previously the running flag prevented revocation after visible completion.
+
+## Session 2026-10-09 — Semantische Commits des aktuellen Stands
+
+- User requests committing/checking in the complete current state, separated by semantics. Solo workflow on main; no new functional changes.
+- Segments: cached check-in readiness/time transitions; immediate release with static longpress feedback; automatic check-in for new device bookings; callback IP normalization and button feedback; steady startup branding plus reference images; documentation/marketing/shared memory.
+- Constructed staged snapshots without modifying final working files. Each code snapshot passed `go test ./...`; final startup snapshot passed full `go test -race ./...`. Final staged Go source exactly matches the preexisting reviewed/tested working state. Existing standalone EXE remains an ignored build artifact.
+- Checked staged whitespace and scanned changed production code/new documentation for credentials; no embedded credentials found. Includes original brand palette image and user-provided live device reference photograph.
+- Check-in target: publish the semantic commit series to origin/main under the user's check-in request. Open device feedback remains: validate normal ring/button behavior on real hardware and collect Rooms/status diagnostics if red persists.
+
+- Git transport finding: configured origin uses SSH, but SSH push fails with `Permission denied (publickey)` in this container. Existing GitHub CLI login for the repository owner uses HTTPS; use its credential helper with the HTTPS URL for check-in, without changing the configured origin or exposing credentials.
