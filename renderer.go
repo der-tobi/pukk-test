@@ -7,12 +7,17 @@ type RingInput struct {
 	Busy        [12]bool
 	Known       [12]bool
 	Active      *Booking
+	Checkin     *Booking
 	ExactBusy   []TimeRange
 	ExactKnown  bool
 	Provisional []TimeRange
 }
 
 func RenderRing(input RingInput) LEDCommand {
+	checkin := input.Checkin
+	if checkin == nil && input.Active != nil && input.Active.CheckinReady(input.Now) {
+		checkin = input.Active
+	}
 	colors := make([]LEDColor, 12)
 	busySlots := make([]bool, 12)
 	activeSlots := make([]bool, 12)
@@ -35,7 +40,9 @@ func RenderRing(input RingInput) LEDCommand {
 		activeOverlap := inDisplayRanges(input.Now, slotStart, slotEnd, activeRange)
 		activeSlots[i] = activeOverlap
 		busySlots[i] = busy || activeOverlap
-		checkinSlots[i] = activeOverlap && input.Active != nil && !input.Active.CheckinConfirmed
+		if checkin != nil {
+			checkinSlots[i] = inDisplayRanges(input.Now, slotStart, slotEnd, []TimeRange{{Start: checkin.Start, End: checkin.End}})
+		}
 		provisionalSlots[i] = inDisplayRanges(input.Now, slotStart, slotEnd, input.Provisional)
 	}
 

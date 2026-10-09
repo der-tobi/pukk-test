@@ -652,6 +652,50 @@ func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *te
 	}
 }
 
+func TestCachedUpcomingBookingBecomesOrangeAtStartWithoutRoomsRefresh(t *testing.T) {
+	now := time.Date(2026, 8, 13, 9, 59, 59, 0, time.UTC)
+	rooms := &recordingRooms{bookings: []Booking{{ID: 7, ResourceID: 44, Start: now.Add(time.Second), End: now.Add(15*time.Minute + time.Second)}}}
+	app := NewApp(rooms, AppConfig{ResourceID: 44, Now: func() time.Time { return now }, Logger: discardLogger{}})
+	if err := app.RefreshActiveBooking(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertRingPattern(t, app.Poll("abc", ""), "RRRGGGGGGGGG")
+	now = now.Add(time.Second)
+	assertRingPattern(t, app.Poll("abc", ""), "OOOGGGGGGGGG")
+	if err := app.HandleEvent(context.Background(), "nfc", "abc", ""); err != nil {
+		t.Fatal(err)
+	}
+	if rooms.checkedInID != 7 {
+		t.Fatalf("check-in targeted %d, want cached booking 7", rooms.checkedInID)
+	}
+	assertRingPattern(t, app.Poll("abc", ""), "RRRGGGGGGGGG")
+}
+
+func TestCachedBookingCheckinLeadTimeTurnsOrangeAndAllowsEarlyNFC(t *testing.T) {
+	now := time.Date(2026, 8, 13, 9, 54, 59, 0, time.UTC)
+	var booking Booking
+	if err := json.Unmarshal([]byte(`{"Id":7,"RessourceId":44,"Begin":"2026-08-13T10:00:00Z","End":"2026-08-13T10:15:00Z","CheckinLeadTime":"2026-08-13T09:55:00Z","CheckinFollowupTime":"2026-08-13T10:15:00Z"}`), &booking); err != nil {
+		t.Fatal(err)
+	}
+	rooms := &recordingRooms{bookings: []Booking{booking}}
+	app := NewApp(rooms, AppConfig{ResourceID: 44, Now: func() time.Time { return now }, Logger: discardLogger{}})
+	if err := app.RefreshActiveBooking(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertRingPattern(t, app.Poll("abc", ""), "GRRRGGGGGGGG")
+	now = now.Add(time.Second)
+	assertRingPattern(t, app.Poll("abc", ""), "GOOOGGGGGGGG")
+	if err := app.HandleEvent(context.Background(), "nfc", "abc", ""); err != nil {
+		t.Fatal(err)
+	}
+	if rooms.checkedInID != 7 {
+		t.Fatalf("early NFC targeted %d, want 7", rooms.checkedInID)
+	}
+	assertRingPattern(t, app.Poll("abc", ""), "GRRRGGGGGGGG")
+	now = booking.Start
+	assertRingPattern(t, app.Poll("abc", ""), "RRRGGGGGGGGG")
+}
+
 func TestLongPressTerminationDoesNotRepaintClosedHoursFallbackRed(t *testing.T) {
 	now := time.Date(2026, 8, 17, 23, 58, 0, 0, time.UTC)
 	current := &Booking{

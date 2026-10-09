@@ -35,6 +35,7 @@ type App struct {
 
 	mu                sync.Mutex
 	active            *Booking
+	bookings          []Booking
 	exactBusy         []TimeRange
 	exactBusyKnown    bool
 	pending           *pendingSelection
@@ -182,6 +183,7 @@ func (a *App) RefreshActiveBooking(ctx context.Context) error {
 	}
 
 	active, exactBusy := selectActiveAndExactBusy(bookings, a.cfg.ResourceID, now, windowEnd)
+	a.bookings = append([]Booking(nil), bookings...)
 	if active != nil {
 		a.active = active
 	} else if a.active != nil && now.Before(a.active.End) {
@@ -215,6 +217,35 @@ func selectActiveAndExactBusy(bookings []Booking, resourceID int, now, windowEnd
 		exactBusy = append(exactBusy, TimeRange{Start: booking.Start, End: booking.End})
 	}
 	return active, exactBusy
+}
+
+// Promote cached bookings at their start without waiting for an upstream refresh.
+// A locally committed booking remains authoritative until it expires.
+func (a *App) currentBookingLocked(now time.Time) *Booking {
+	if a.active != nil && !now.Before(a.active.Start) && now.Before(a.active.End) {
+		return cloneBooking(a.active)
+	}
+	a.active = nil
+	for _, booking := range a.bookings {
+		if booking.MatchesResource(a.cfg.ResourceID) && !now.Before(booking.Start) && now.Before(booking.End) {
+			a.active = cloneBooking(&booking)
+			return cloneBooking(a.active)
+		}
+	}
+	return nil
+}
+
+func (a *App) checkinBookingLocked(now time.Time) *Booking {
+	if active := a.currentBookingLocked(now); active != nil && active.CheckinReady(now) {
+		return active
+	}
+	var next *Booking
+	for _, booking := range a.bookings {
+		if booking.MatchesResource(a.cfg.ResourceID) && booking.CheckinReady(now) && (next == nil || booking.Start.Before(next.Start)) {
+			next = cloneBooking(&booking)
+		}
+	}
+	return next
 }
 
 func (a *App) RecordRequest(method, path, action, mac, remoteIP string) {
@@ -269,7 +300,7 @@ func (a *App) Poll(mac, deviceIP string) LEDCommand {
 	if mac != "" && deviceIP != "" {
 		a.deviceIPs[mac] = deviceIP
 	}
-	active := cloneBooking(a.active)
+	active := a.currentBookingLocked(now)
 	exactBusy := append([]TimeRange(nil), a.exactBusy...)
 	exactBusyKnown := a.exactBusyKnown
 	var provisional []TimeRange
@@ -288,11 +319,15 @@ func (a *App) Poll(mac, deviceIP string) LEDCommand {
 
 func (a *App) renderRing(now time.Time, active *Booking, exactBusy []TimeRange, exactBusyKnown bool, provisional []TimeRange) LEDCommand {
 	snapshot := a.cache.Snapshot(now)
+	a.mu.Lock()
+	checkin := a.checkinBookingLocked(now)
+	a.mu.Unlock()
 	return RenderRing(RingInput{
 		Now:         now,
 		Busy:        snapshot.Busy,
 		Known:       snapshot.Known,
 		Active:      active,
+		Checkin:     checkin,
 		ExactBusy:   exactBusy,
 		ExactKnown:  exactBusyKnown,
 		Provisional: provisional,
@@ -385,7 +420,7 @@ func (a *App) handleShortPressForDevice(ctx context.Context, mac, deviceIP strin
 		deviceIP = a.deviceIPs[mac]
 	}
 
-	active := cloneBooking(a.active)
+	active := a.currentBookingLocked(now)
 	exactBusy := append([]TimeRange(nil), a.exactBusy...)
 	exactBusyKnown := a.exactBusyKnown
 	var beforeProvisional []TimeRange
@@ -744,7 +779,8 @@ func (a *App) handleNFC(ctx context.Context, mac, deviceIP string) error {
 	if deviceIP == "" && mac != "" {
 		deviceIP = a.deviceIPs[mac]
 	}
-	active := cloneBooking(a.active)
+	displayActive := a.currentBookingLocked(now)
+	active := a.checkinBookingLocked(now)
 	exactBusy := append([]TimeRange(nil), a.exactBusy...)
 	exactBusyKnown := a.exactBusyKnown
 	a.mu.Unlock()
@@ -754,12 +790,13 @@ func (a *App) handleNFC(ctx context.Context, mac, deviceIP string) error {
 			return err
 		}
 		active = booking
+		displayActive = booking
 	}
-	if active == nil || active.CheckinConfirmed {
+	if active == nil || !active.CheckinReady(now) {
 		return nil
 	}
 
-	before := a.renderRing(now, active, exactBusy, exactBusyKnown, nil)
+	before := a.renderRing(now, displayActive, exactBusy, exactBusyKnown, nil)
 	checkedIn, err := a.rooms.CheckInBooking(ctx, *active)
 	if err != nil {
 		return err
@@ -775,11 +812,24 @@ func (a *App) handleNFC(ctx context.Context, mac, deviceIP string) error {
 	if checkedIn.End.IsZero() {
 		checkedIn.End = active.End
 	}
+	if checkedIn.BookingID() == 0 {
+		checkedIn.ID = active.ID
+		checkedIn.ReservationID = active.ReservationID
+	}
+	checkedIn.CheckinConfirmed = true
 	a.mu.Lock()
-	a.active = checkedIn
+	for i, booking := range a.bookings {
+		if sameBookingIdentityOrRange(booking, *active) {
+			a.bookings[i] = *checkedIn
+		}
+	}
+	if !now.Before(checkedIn.Start) {
+		a.active = checkedIn
+	}
+	displayActive = a.currentBookingLocked(now)
 	a.mu.Unlock()
 
-	after := a.renderRing(now, checkedIn, exactBusy, exactBusyKnown, nil)
+	after := a.renderRing(now, displayActive, exactBusy, exactBusyKnown, nil)
 	indexes := changedLEDIndexes(before, after)
 	a.animateLEDTransition(deviceIP, 0, before, after, indexes)
 	return nil
@@ -862,6 +912,13 @@ func (a *App) clearLocalBooking(booking *Booking) {
 	if a.active != nil && sameBookingIdentityOrRange(*a.active, *booking) {
 		a.active = nil
 	}
+	bookings := a.bookings[:0]
+	for _, cached := range a.bookings {
+		if !sameBookingIdentityOrRange(cached, *booking) {
+			bookings = append(bookings, cached)
+		}
+	}
+	a.bookings = bookings
 	filtered := a.exactBusy[:0]
 	for _, busyRange := range a.exactBusy {
 		if busyRange.Start.Equal(booking.Start) && busyRange.End.Equal(booking.End) {

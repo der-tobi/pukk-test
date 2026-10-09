@@ -58,14 +58,16 @@ type LEDCommand struct {
 }
 
 type Booking struct {
-	ID               int       `json:"id"`
-	ReservationID    int       `json:"reservationId,omitempty"`
-	ResourceID       int       `json:"resourceId,omitempty"`
-	RessourceID      int       `json:"ressourceId,omitempty"`
-	Title            string    `json:"title,omitempty"`
-	Start            time.Time `json:"start"`
-	End              time.Time `json:"end"`
-	CheckinConfirmed bool      `json:"checkinConfirmed"`
+	ID                  int       `json:"id"`
+	ReservationID       int       `json:"reservationId,omitempty"`
+	ResourceID          int       `json:"resourceId,omitempty"`
+	RessourceID         int       `json:"ressourceId,omitempty"`
+	Title               string    `json:"title,omitempty"`
+	Start               time.Time `json:"start"`
+	End                 time.Time `json:"end"`
+	CheckinConfirmed    bool      `json:"checkinConfirmed"`
+	CheckinLeadTime     time.Time `json:"checkinLeadTime,omitempty"`
+	CheckinFollowupTime time.Time `json:"checkinFollowupTime,omitempty"`
 }
 
 func (b *Booking) UnmarshalJSON(data []byte) error {
@@ -85,7 +87,21 @@ func (b *Booking) UnmarshalJSON(data []byte) error {
 	b.Start = firstJSONTime(fields, "start", "Start", "begin", "Begin", "beginn", "Beginn")
 	b.End = firstJSONTime(fields, "end", "End", "ende", "Ende")
 	b.CheckinConfirmed = firstJSONBool(fields, "checkinConfirmed", "CheckinConfirmed", "isCheckedIn", "IsCheckedIn")
+	b.CheckinLeadTime = firstJSONTime(fields, "checkinLeadTime", "CheckinLeadTime")
+	b.CheckinFollowupTime = firstJSONTime(fields, "checkinFollowupTime", "CheckinFollowupTime")
 	return nil
+}
+
+func (b Booking) CheckinReady(now time.Time) bool {
+	start := b.CheckinLeadTime
+	if start.IsZero() {
+		start = b.Start
+	}
+	end := b.CheckinFollowupTime
+	if end.IsZero() || end.After(b.End) {
+		end = b.End
+	}
+	return !b.CheckinConfirmed && !now.Before(start) && now.Before(end)
 }
 
 func (b Booking) BookingID() int {
