@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 )
@@ -26,6 +27,7 @@ type AppConfig struct {
 	DeviceController          DeviceController
 	DevicePushTimeout         time.Duration
 	ButtonAnimationFrameDelay time.Duration
+	StartupAnimation          bool
 	Logger                    Logger
 }
 
@@ -35,6 +37,7 @@ type App struct {
 	cfg   AppConfig
 
 	mu                sync.Mutex
+	devicePushMu      sync.Mutex
 	active            *Booking
 	bookings          []Booking
 	terminating       *Booking
@@ -43,6 +46,7 @@ type App struct {
 	pending           *pendingSelection
 	pendingGeneration int
 	deviceIPs         map[string]string
+	startupAnimations map[string]*startupAnimation
 	debug             DebugStatus
 }
 
@@ -296,6 +300,14 @@ func (a *App) DebugStatus() DebugStatus {
 }
 
 func (a *App) Poll(mac, deviceIP string) LEDCommand {
+	if command, running := a.startupCommand(mac, deviceIP); running {
+		a.recordLEDCommand(command)
+		return command
+	}
+	return a.pollNormal(mac, deviceIP)
+}
+
+func (a *App) pollNormal(mac, deviceIP string) LEDCommand {
 	now := a.cfg.Now().UTC()
 	a.commitExpiredPending(now)
 	a.mu.Lock()
@@ -376,8 +388,33 @@ func (a *App) pushLEDCommand(deviceIP string, command LEDCommand) {
 }
 
 func (a *App) pushLEDValues(ctx context.Context, deviceIP string, values LEDValues) error {
+	return a.pushDeviceLEDValues(ctx, deviceIP, values, false)
+}
+
+func (a *App) pushDeviceLEDValues(ctx context.Context, deviceIP string, values LEDValues, startup bool) error {
 	if a.cfg.DeviceController == nil || deviceIP == "" {
 		return nil
+	}
+	// Keep device HTTP writes in order. A queued ambient frame must not
+	// overwrite the marketing sequence once it owns the ring.
+	a.devicePushMu.Lock()
+	defer a.devicePushMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !startup {
+		a.mu.Lock()
+		blocked := false
+		for _, animation := range a.startupAnimations {
+			if animation.running && net.ParseIP(animation.deviceIP).Equal(net.ParseIP(deviceIP)) {
+				blocked = true
+				break
+			}
+		}
+		a.mu.Unlock()
+		if blocked {
+			return nil
+		}
 	}
 	err := a.cfg.DeviceController.SetIndividualLEDs(ctx, deviceIP, values)
 	now := a.cfg.Now().UTC()
@@ -396,6 +433,7 @@ func (a *App) pushLEDValues(ctx context.Context, deviceIP string, values LEDValu
 }
 
 func (a *App) HandleEvent(ctx context.Context, action, mac, deviceIP string) error {
+	a.cancelStartupAnimation(mac, deviceIP)
 	switch action {
 	case "short_press", "double_press", "multiple_press":
 		a.handleShortPressForDevice(ctx, mac, deviceIP)

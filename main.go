@@ -20,6 +20,7 @@ func main() {
 		ResourceID:       DefaultResourceID,
 		Logger:           logger,
 		DeviceController: NewPukkDeviceHTTPClient(),
+		StartupAnimation: true,
 	})
 	if err := app.ValidateReady(); err != nil {
 		log.Fatal(err)
