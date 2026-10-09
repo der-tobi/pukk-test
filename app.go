@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -651,8 +652,36 @@ func (a *App) commitSelection(ctx context.Context, pending *pendingSelection) er
 	a.mu.Lock()
 	a.active = committed
 	a.mu.Unlock()
+	autoCheckedIn := false
+	if pending.active == nil && !committed.CheckinConfirmed {
+		if _, err := a.rooms.CheckInBooking(ctx, *committed); err != nil {
+			// Creation already succeeded: retain the booking for display and NFC
+			// retry instead of reverting to an apparently free room.
+			return fmt.Errorf("booking %d created, but automatic check-in failed: %w", committed.BookingID(), err)
+		}
+		autoCheckedIn = true
+		a.mu.Lock()
+		committed.CheckinConfirmed = true
+		if a.active != nil && sameBookingIdentityOrRange(*a.active, *committed) {
+			a.active.CheckinConfirmed = true
+		}
+		a.mu.Unlock()
+	}
 	if err := a.Refresh(ctx); err != nil {
 		a.cfg.Logger.Printf("post-commit Rooms refresh failed; keeping local booking state for display: %v", err)
+	}
+	if autoCheckedIn {
+		// A lagging read must not undo the successfully acknowledged check-in.
+		a.mu.Lock()
+		if a.active != nil && sameBookingIdentityOrRange(*a.active, *committed) {
+			a.active.CheckinConfirmed = true
+		}
+		for i, booking := range a.bookings {
+			if sameBookingIdentityOrRange(booking, *committed) {
+				a.bookings[i].CheckinConfirmed = true
+			}
+		}
+		a.mu.Unlock()
 	}
 	return nil
 }

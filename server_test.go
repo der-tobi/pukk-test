@@ -282,6 +282,77 @@ func TestShortPressCreatesAndCommitsAdHocBooking(t *testing.T) {
 	}
 }
 
+type autoCheckinRooms struct {
+	*recordingRooms
+	confirmed       bool
+	checkinErr      error
+	partialResponse bool
+}
+
+func (r *autoCheckinRooms) CreateAdHocBooking(ctx context.Context, start, end time.Time) (*Booking, error) {
+	booking, err := r.recordingRooms.CreateAdHocBooking(ctx, start, end)
+	booking.CheckinConfirmed = r.confirmed
+	// Keep the next read stale to verify local check-in confirmation survives it.
+	r.currentBooking = cloneBooking(booking)
+	return booking, err
+}
+
+func (r *autoCheckinRooms) CheckInBooking(ctx context.Context, booking Booking) (*Booking, error) {
+	r.checkedInID = booking.BookingID()
+	if r.checkinErr != nil {
+		return nil, r.checkinErr
+	}
+	if r.partialResponse {
+		return &Booking{CheckinConfirmed: true}, nil
+	}
+	return r.recordingRooms.CheckInBooking(ctx, booking)
+}
+
+func TestDeviceCreatedBookingAutomaticallyChecksInWhenNeeded(t *testing.T) {
+	for _, scenario := range []struct {
+		name                     string
+		confirmed, partial, fail bool
+	}{
+		{"needs check-in", false, false, false},
+		{"already checked in", true, false, false},
+		{"partial check-in response", false, true, false},
+		{"check-in rejected", false, false, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+			rooms := &autoCheckinRooms{recordingRooms: &recordingRooms{}, confirmed: scenario.confirmed, partialResponse: scenario.partial}
+			if scenario.fail {
+				rooms.checkinErr = errors.New("check-in rejected")
+			}
+			app := NewApp(rooms, AppConfig{ResourceID: 44, Now: func() time.Time { return now }, CommitWait: time.Hour, Logger: discardLogger{}})
+			app.handleShortPress()
+			err := app.CommitPending(context.Background())
+			if scenario.fail {
+				if !errors.Is(err, rooms.checkinErr) {
+					t.Fatalf("error = %v, want check-in failure", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			wantID := 100
+			if scenario.confirmed {
+				wantID = 0
+			}
+			if rooms.checkedInID != wantID {
+				t.Fatalf("check-in id = %d, want %d", rooms.checkedInID, wantID)
+			}
+			if app.DebugStatus().ActiveBookingID != 100 {
+				t.Fatal("created booking lost after check-in")
+			}
+			want := "RRRGGGGGGGGG"
+			if scenario.fail {
+				want = "OOOGGGGGGGGG"
+			}
+			assertRingPattern(t, app.Poll("abc", ""), want)
+		})
+	}
+}
+
 func TestShortPressesShowFifteenMinuteBlueStepsOnEmptyResource(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	rooms := &recordingRooms{freeBusy: "000000000000000"}
