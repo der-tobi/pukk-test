@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -604,7 +606,7 @@ func TestCommitPendingTurnsBlueExtensionFramesRedClockwise(t *testing.T) {
 	}
 }
 
-func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *testing.T) {
+func TestLongPressTerminationShowsTwoStaticFrames(t *testing.T) {
 	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	current := &Booking{
 		ID:               7,
@@ -634,19 +636,12 @@ func TestLongPressTerminationSweepsCurrentBookingBlueThenGreenFromEndToNow(t *te
 		t.Fatalf("HandleEvent returned error: %v", err)
 	}
 
-	frames := waitForDeviceFrames(t, device, 12)
-	assertLEDValuesPattern(t, frames[0], "RRRRRBGGGGGG")
-	assertLEDValuesPattern(t, frames[1], "RRRRBBGGGGGG")
-	assertLEDValuesPattern(t, frames[2], "RRRBBBGGGGGG")
-	assertLEDValuesPattern(t, frames[3], "RRBBBBGGGGGG")
-	assertLEDValuesPattern(t, frames[4], "RBBBBBGGGGGG")
-	assertLEDValuesPattern(t, frames[5], "BBBBBBGGGGGG")
-	assertLEDValuesPattern(t, frames[6], "BBBBBGGGGGGG")
-	assertLEDValuesPattern(t, frames[7], "BBBBGGGGGGGG")
-	assertLEDValuesPattern(t, frames[8], "BBBGGGGGGGGG")
-	assertLEDValuesPattern(t, frames[9], "BBGGGGGGGGGG")
-	assertLEDValuesPattern(t, frames[10], "BGGGGGGGGGGG")
-	assertLEDValuesPattern(t, frames[11], "GGGGGGGGGGGG")
+	frames := waitForDeviceFrames(t, device, 2)
+	if len(frames) != 2 {
+		t.Fatalf("got %d frames, want only processing and final state", len(frames))
+	}
+	assertLEDValuesPattern(t, frames[0], "BBBBBBGGGGGG")
+	assertLEDValuesPattern(t, frames[1], "GGGGGGGGGGGG")
 	if rooms.releasedID != current.ID {
 		t.Fatalf("released booking id = %d, want %d", rooms.releasedID, current.ID)
 	}
@@ -696,6 +691,56 @@ func TestCachedBookingCheckinLeadTimeTurnsOrangeAndAllowsEarlyNFC(t *testing.T) 
 	assertRingPattern(t, app.Poll("abc", ""), "RRRGGGGGGGGG")
 }
 
+type blockingReleaseRooms struct {
+	*recordingRooms
+	entered chan struct{}
+	finish  chan struct{}
+	err     error
+}
+
+func (r *blockingReleaseRooms) ReleaseBooking(ctx context.Context, booking Booking) error {
+	close(r.entered)
+	<-r.finish
+	if r.err != nil {
+		return r.err
+	}
+	return r.recordingRooms.ReleaseBooking(ctx, booking)
+}
+
+func TestPollKeepsLongPressFeedbackUntilRoomsCompletes(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fail=%t", fail), func(t *testing.T) {
+			now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+			rooms := &blockingReleaseRooms{recordingRooms: &recordingRooms{currentBooking: &Booking{ID: 7, ResourceID: 44, Start: now, End: now.Add(15 * time.Minute), CheckinConfirmed: true}}, entered: make(chan struct{}), finish: make(chan struct{})}
+			if fail {
+				rooms.err = errors.New("Rooms release rejected")
+			}
+			app := NewApp(rooms, AppConfig{ResourceID: 44, Now: func() time.Time { return now }, Logger: discardLogger{}})
+			if err := app.RefreshActiveBooking(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- app.HandleEvent(context.Background(), "long_press_3s", "abc", "") }()
+			select {
+			case <-rooms.entered:
+			case <-time.After(time.Second):
+				t.Fatal("release did not start")
+			}
+			assertRingPattern(t, app.Poll("abc", ""), "BBBGGGGGGGGG")
+			close(rooms.finish)
+			err := <-done
+			if (err != nil) != fail {
+				t.Fatalf("release error = %v", err)
+			}
+			want := "GGGGGGGGGGGG"
+			if fail {
+				want = "RRRGGGGGGGGG"
+			}
+			assertRingPattern(t, app.Poll("abc", ""), want)
+		})
+	}
+}
+
 func TestLongPressTerminationDoesNotRepaintClosedHoursFallbackRed(t *testing.T) {
 	now := time.Date(2026, 8, 17, 23, 58, 0, 0, time.UTC)
 	current := &Booking{
@@ -725,6 +770,30 @@ func TestLongPressTerminationDoesNotRepaintClosedHoursFallbackRed(t *testing.T) 
 
 	now = time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
 	assertRingPattern(t, app.Poll("abc", "192.0.2.10"), "GGGGGGGGGGGG")
+}
+
+func TestLongPressAfterCheckinTerminatesForEveryLongPressBucket(t *testing.T) {
+	for _, action := range []string{"long_press_3s", "long_press_5s", "long_press_15s"} {
+		t.Run(action, func(t *testing.T) {
+			now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+			rooms := &recordingRooms{currentBooking: &Booking{ID: 7, ResourceID: 44, Start: now.Add(-time.Minute), End: now.Add(15 * time.Minute)}}
+			app := NewApp(rooms, AppConfig{ResourceID: 44, Now: func() time.Time { return now }, Logger: discardLogger{}})
+			if err := app.RefreshActiveBooking(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := app.HandleEvent(context.Background(), "nfc", "abc", ""); err != nil {
+				t.Fatal(err)
+			}
+			assertRingPattern(t, app.Poll("abc", ""), "RRRGGGGGGGGG")
+			if err := app.HandleEvent(context.Background(), action, "abc", ""); err != nil {
+				t.Fatal(err)
+			}
+			if rooms.releasedID != 7 {
+				t.Fatalf("released booking = %d, want 7 after check-in", rooms.releasedID)
+			}
+			assertRingPattern(t, app.Poll("abc", ""), "GGGGGGGGGGGG")
+		})
+	}
 }
 
 func TestNFCTapChecksInCurrentBookingAndSweepsOrangeToRed(t *testing.T) {

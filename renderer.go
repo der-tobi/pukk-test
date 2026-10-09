@@ -8,6 +8,7 @@ type RingInput struct {
 	Known       [12]bool
 	Active      *Booking
 	Checkin     *Booking
+	Terminating *Booking
 	ExactBusy   []TimeRange
 	ExactKnown  bool
 	Provisional []TimeRange
@@ -76,6 +77,12 @@ func RenderRing(input RingInput) LEDCommand {
 		}
 		if provisionalSlots[i] {
 			hex = ProvisionalBlue
+		}
+		if input.Terminating != nil {
+			slotStart := input.Now.Add(time.Duration(i) * 5 * time.Minute)
+			if inDisplayRanges(input.Now, slotStart, slotStart.Add(5*time.Minute), []TimeRange{{Start: input.Terminating.Start, End: input.Terminating.End}}) {
+				hex = ProvisionalBlue
+			}
 		}
 
 		colors[i] = ColorFromHex(hex, brightness)

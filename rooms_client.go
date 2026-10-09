@@ -163,26 +163,12 @@ func (c *RoomsHTTPClient) ReleaseBooking(ctx context.Context, booking Booking) e
 	if id == 0 {
 		return errors.New("cannot release booking without id")
 	}
-	canCheckout, err := c.canCheckout(ctx, id)
-	if err != nil {
-		return err
-	}
-	path := fmt.Sprintf("/api/v1.0/bookings/%d/release", id)
+	// Release immediately in both check-in states. Plain checkout preserves
+	// follow-up time and checks a different permission from room release.
+	path := fmt.Sprintf("/api/v1.0/bookings/%d/checkout/release", id)
 	values := url.Values{}
-	if canCheckout {
-		path = fmt.Sprintf("/api/v1.0/bookings/%d/checkout", id)
-		values.Set("sendMail", "false")
-	}
-	var ignored Booking
-	return c.doJSON(ctx, http.MethodPut, c.apiPath(path, values), nil, &ignored)
-}
-
-func (c *RoomsHTTPClient) canCheckout(ctx context.Context, id int) (bool, error) {
-	var result bool
-	if err := c.doJSON(ctx, http.MethodGet, c.apiPath(fmt.Sprintf("/api/v1.0/bookings/%d/cancheckout", id), nil), nil, &result); err != nil {
-		return false, err
-	}
-	return result, nil
+	values.Set("sendMail", "false")
+	return c.doJSON(ctx, http.MethodPut, c.apiPath(path, values), nil, nil)
 }
 
 func (c *RoomsHTTPClient) doJSON(ctx context.Context, method, rawURL string, body any, out any) error {

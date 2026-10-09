@@ -36,6 +36,7 @@ type App struct {
 	mu                sync.Mutex
 	active            *Booking
 	bookings          []Booking
+	terminating       *Booking
 	exactBusy         []TimeRange
 	exactBusyKnown    bool
 	pending           *pendingSelection
@@ -321,6 +322,7 @@ func (a *App) renderRing(now time.Time, active *Booking, exactBusy []TimeRange, 
 	snapshot := a.cache.Snapshot(now)
 	a.mu.Lock()
 	checkin := a.checkinBookingLocked(now)
+	terminating := cloneBooking(a.terminating)
 	a.mu.Unlock()
 	return RenderRing(RingInput{
 		Now:         now,
@@ -328,6 +330,7 @@ func (a *App) renderRing(now time.Time, active *Booking, exactBusy []TimeRange, 
 		Known:       snapshot.Known,
 		Active:      active,
 		Checkin:     checkin,
+		Terminating: terminating,
 		ExactBusy:   exactBusy,
 		ExactKnown:  exactBusyKnown,
 		Provisional: provisional,
@@ -398,7 +401,7 @@ func (a *App) HandleEvent(ctx context.Context, action, mac, deviceIP string) err
 		return nil
 	case "nfc":
 		return a.handleNFC(ctx, mac, deviceIP)
-	case "long_press_3s":
+	case "long_press_3s", "long_press_5s", "long_press_15s":
 		return a.handleCheckout(ctx, mac, deviceIP)
 	default:
 		return nil
@@ -844,7 +847,7 @@ func (a *App) handleCheckout(ctx context.Context, mac, deviceIP string) error {
 	if deviceIP == "" && mac != "" {
 		deviceIP = a.deviceIPs[mac]
 	}
-	active := cloneBooking(a.active)
+	active := a.currentBookingLocked(now)
 	exactBusy := append([]TimeRange(nil), a.exactBusy...)
 	exactBusyKnown := a.exactBusyKnown
 	a.mu.Unlock()
@@ -856,54 +859,49 @@ func (a *App) handleCheckout(ctx context.Context, mac, deviceIP string) error {
 		active = booking
 	}
 	if active == nil {
+		a.pushLEDCommand(deviceIP, a.renderRing(now, nil, exactBusy, exactBusyKnown, nil))
 		return nil
 	}
 
-	before := a.renderRing(now, active, exactBusy, exactBusyKnown, nil)
-	indexes := activeLEDIndexes(now, *active)
-	reverseInts(indexes)
-	blue := commandWithColor(before, indexes, ProvisionalBlue)
-	a.animateLEDTransition(deviceIP, 0, before, blue, indexes)
+	a.mu.Lock()
+	if a.pending != nil && a.pending.timer != nil {
+		a.pending.timer.Stop()
+	}
+	a.pending = nil
+	a.pendingGeneration++
+	a.terminating = cloneBooking(active)
+	a.mu.Unlock()
+	a.sendRingToDevice(deviceIP, a.renderRing(now, active, exactBusy, exactBusyKnown, nil))
 
 	if err := a.rooms.ReleaseBooking(ctx, *active); err != nil {
-		a.pushLEDCommand(deviceIP, before)
+		a.mu.Lock()
+		a.terminating = nil
+		a.mu.Unlock()
+		a.sendRingToDevice(deviceIP, a.renderRing(a.cfg.Now().UTC(), active, exactBusy, exactBusyKnown, nil))
 		return err
 	}
 
 	a.clearLocalBooking(active)
-	green := commandWithColor(blue, indexes, FreeGreen)
-	a.animateLEDTransition(deviceIP, 0, blue, green, indexes)
+	a.mu.Lock()
+	a.terminating = nil
+	exactBusy = append([]TimeRange(nil), a.exactBusy...)
+	active = a.currentBookingLocked(a.cfg.Now().UTC())
+	a.mu.Unlock()
+	a.sendRingToDevice(deviceIP, a.renderRing(a.cfg.Now().UTC(), active, exactBusy, true, nil))
 	return nil
 }
 
-func activeLEDIndexes(now time.Time, active Booking) []int {
-	indexes := make([]int, 0, 12)
-	activeRange := []TimeRange{{Start: active.Start, End: active.End}}
-	for i := 0; i < 12; i++ {
-		slotStart := now.Add(time.Duration(i) * 5 * time.Minute)
-		slotEnd := slotStart.Add(5 * time.Minute)
-		if inDisplayRanges(now, slotStart, slotEnd, activeRange) {
-			indexes = append(indexes, i)
-		}
+// Send one complete frame synchronously so processing and final feedback cannot
+// arrive in reverse order. Polls render the same processing state while waiting.
+func (a *App) sendRingToDevice(deviceIP string, command LEDCommand) {
+	if a.cfg.DeviceController == nil || deviceIP == "" {
+		return
 	}
-	return indexes
-}
-
-func commandWithColor(command LEDCommand, indexes []int, hex string) LEDCommand {
-	next := LEDCommand{
-		Command: command.Command,
-		LEDValues: LEDValues{
-			Colors:     append([]LEDColor(nil), command.LEDValues.Colors...),
-			DurationMS: command.LEDValues.DurationMS,
-		},
+	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.DevicePushTimeout)
+	defer cancel()
+	if err := a.pushLEDValues(ctx, deviceIP, command.LEDValues); err != nil {
+		a.cfg.Logger.Printf("PuKK local LED push to %s failed: %v", deviceIP, err)
 	}
-	color := ColorFromHex(hex, 100)
-	for _, idx := range indexes {
-		if idx >= 0 && idx < len(next.LEDValues.Colors) {
-			next.LEDValues.Colors[idx] = color
-		}
-	}
-	return next
 }
 
 func (a *App) clearLocalBooking(booking *Booking) {

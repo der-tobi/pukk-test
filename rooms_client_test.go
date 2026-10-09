@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -228,15 +229,40 @@ func TestRoomsClientCheckInBookingUsesAuthenticatedUserWithoutPin(t *testing.T) 
 	}
 }
 
+func TestRoomsClientReleaseBookingUsesImmediateReleaseBeforeAndAfterCheckin(t *testing.T) {
+	for _, checkedIn := range []bool{false, true} {
+		t.Run(fmt.Sprintf("checkedIn=%t", checkedIn), func(t *testing.T) {
+			var paths []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				switch r.URL.Path {
+				case "/connect/token":
+					_, _ = w.Write([]byte(`{"access_token":"token"}`))
+				case "/default/api/v1.0/bookings/7/checkout/release":
+					if r.Method != http.MethodPut || r.URL.Query().Get("sendMail") != "false" {
+						t.Errorf("unexpected release request: %s %s", r.Method, r.URL)
+					}
+					_, _ = w.Write([]byte(`{"Id":7}`))
+				default:
+					http.Error(w, "terminating permission unavailable; immediate release is permitted", http.StatusForbidden)
+				}
+			}))
+			defer server.Close()
+			client := NewRoomsHTTPClient(RoomsConfig{AuthBaseURL: server.URL, APIBaseURL: server.URL, HTTPClient: server.Client()})
+			if err := client.ReleaseBooking(context.Background(), Booking{ID: 7, CheckinConfirmed: checkedIn}); err != nil {
+				t.Fatalf("release failed: %v (requests: %v)", err, paths)
+			}
+		})
+	}
+}
+
 func TestRoomsClientReleaseBookingAcceptsTimezoneLessBookingResponse(t *testing.T) {
 	var checkoutPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/connect/token":
 			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "token-1"})
-		case "/default/api/v1.0/bookings/7/cancheckout":
-			_ = json.NewEncoder(w).Encode(true)
-		case "/default/api/v1.0/bookings/7/checkout":
+		case "/default/api/v1.0/bookings/7/checkout/release":
 			checkoutPath = r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"Id":               7,
@@ -265,7 +291,7 @@ func TestRoomsClientReleaseBookingAcceptsTimezoneLessBookingResponse(t *testing.
 		t.Fatalf("ReleaseBooking returned error: %v", err)
 	}
 
-	if checkoutPath != "/default/api/v1.0/bookings/7/checkout" {
+	if checkoutPath != "/default/api/v1.0/bookings/7/checkout/release" {
 		t.Fatalf("checkout path = %q", checkoutPath)
 	}
 }
