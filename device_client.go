@@ -35,7 +35,11 @@ func (c *PukkDeviceHTTPClient) SetIndividualLEDs(ctx context.Context, deviceIP s
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+deviceIP+"/api/setLeds/individual", bytes.NewReader(payload))
+	deviceHost := net.ParseIP(deviceIP).String()
+	if strings.Contains(deviceHost, ":") {
+		deviceHost = net.JoinHostPort(deviceHost, "80")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+deviceHost+"/api/setLeds/individual", bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}

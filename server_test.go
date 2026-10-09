@@ -769,6 +769,45 @@ type blockingReleaseRooms struct {
 	err     error
 }
 
+type slowInteractionRooms struct {
+	*recordingRooms
+	entered chan struct{}
+	finish  chan struct{}
+	once    sync.Once
+}
+
+func (r *slowInteractionRooms) FindBookings(ctx context.Context, start, end time.Time) ([]Booking, error) {
+	r.once.Do(func() { close(r.entered); <-r.finish })
+	return r.recordingRooms.FindBookings(ctx, start, end)
+}
+
+func TestButtonRestoresLEDsBeforeSlowRoomsLookup(t *testing.T) {
+	rooms := &slowInteractionRooms{recordingRooms: &recordingRooms{freeBusy: "000000000000000"}, entered: make(chan struct{}), finish: make(chan struct{})}
+	device := &recordingDeviceController{done: make(chan struct{}, 20)}
+	app := NewApp(rooms, AppConfig{DeviceController: device, CommitWait: time.Hour, Logger: discardLogger{}})
+	if err := app.RefreshAvailability(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- app.HandleEvent(context.Background(), "short_press", "abc", "192.0.2.10") }()
+	<-rooms.entered
+	frames := device.snapshotFrames()
+	if len(frames) == 0 {
+		t.Error("button firmware feedback not restored before Rooms lookup")
+	} else {
+		assertLEDValuesPattern(t, frames[0], "GGGGGGGGGGGG")
+	}
+	close(rooms.finish)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	app.mu.Lock()
+	if app.pending != nil && app.pending.timer != nil {
+		app.pending.timer.Stop()
+	}
+	app.mu.Unlock()
+}
+
 func (r *blockingReleaseRooms) ReleaseBooking(ctx context.Context, booking Booking) error {
 	close(r.entered)
 	<-r.finish
@@ -865,6 +904,28 @@ func TestLongPressAfterCheckinTerminatesForEveryLongPressBucket(t *testing.T) {
 			assertRingPattern(t, app.Poll("abc", ""), "GGGGGGGGGGGG")
 		})
 	}
+}
+
+func TestButtonWithoutAvailableExtensionRestoresCurrentRing(t *testing.T) {
+	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	rooms := &recordingRooms{currentBooking: &Booking{ID: 7, ResourceID: 44, Start: now, End: now.Add(time.Hour), CheckinConfirmed: true}}
+	device := &recordingDeviceController{done: make(chan struct{}, 1)}
+	app := NewApp(rooms, AppConfig{ResourceID: 44, Now: func() time.Time { return now }, CommitWait: time.Hour, DeviceController: device, Logger: discardLogger{}})
+	if err := app.RefreshActiveBooking(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		app.mu.Lock()
+		defer app.mu.Unlock()
+		if app.pending != nil && app.pending.timer != nil {
+			app.pending.timer.Stop()
+		}
+	}()
+	if err := app.HandleEvent(context.Background(), "short_press", "abc", "192.0.2.10"); err != nil {
+		t.Fatal(err)
+	}
+	frames := waitForDeviceFrames(t, device, 1)
+	assertLEDValuesPattern(t, frames[0], "RRRRRRRRRRRR")
 }
 
 func TestNFCTapChecksInCurrentBookingAndSweepsOrangeToRed(t *testing.T) {

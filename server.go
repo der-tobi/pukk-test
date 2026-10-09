@@ -95,6 +95,9 @@ func intString(value int) string {
 func remoteIP(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err == nil {
+		if ip := net.ParseIP(host); ip != nil {
+			return ip.String()
+		}
 		return host
 	}
 	return remoteAddr

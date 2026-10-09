@@ -415,6 +415,25 @@ func (a *App) handleShortPress() {
 
 func (a *App) handleShortPressForDevice(ctx context.Context, mac, deviceIP string) {
 	now := a.cfg.Now().UTC()
+	a.mu.Lock()
+	if deviceIP == "" && mac != "" {
+		deviceIP = a.deviceIPs[mac]
+	}
+	needsLookup := !a.exactBusyKnown
+	initialActive := a.currentBookingLocked(now)
+	initialBusy := append([]TimeRange(nil), a.exactBusy...)
+	var initialProvisional []TimeRange
+	if a.pending != nil {
+		if r := a.pending.Range(); !r.Empty() {
+			initialProvisional = []TimeRange{r}
+		}
+	}
+	a.mu.Unlock()
+	if needsLookup {
+		// Replace the firmware's white feedback before a potentially slow Rooms
+		// lookup. Selection feedback follows as soon as headroom is known.
+		a.sendRingToDevice(deviceIP, a.renderRing(now, initialActive, initialBusy, false, initialProvisional))
+	}
 	a.ensureExactBusyForInteraction(ctx)
 	a.mu.Lock()
 	if mac != "" && deviceIP != "" {
@@ -740,14 +759,22 @@ func (a *App) animatePendingCommit(pending *pendingSelection, generation int) {
 }
 
 func (a *App) animateLEDTransitionAsync(deviceIP string, generation int, before, after LEDCommand, indexes []int) {
-	if deviceIP == "" || len(indexes) == 0 {
+	if deviceIP == "" {
 		return
 	}
 	go a.animateLEDTransition(deviceIP, generation, before, after, indexes)
 }
 
 func (a *App) animateLEDTransition(deviceIP string, generation int, before, after LEDCommand, indexes []int) {
-	if a.cfg.DeviceController == nil || deviceIP == "" || len(indexes) == 0 {
+	if a.cfg.DeviceController == nil || deviceIP == "" {
+		return
+	}
+	// Even an unchanged ring must replace the firmware's button feedback.
+	if len(indexes) == 0 {
+		if generation != 0 && !a.isAnimationGenerationCurrent(generation) {
+			return
+		}
+		a.pushLEDCommand(deviceIP, after)
 		return
 	}
 	colors := append([]LEDColor(nil), before.LEDValues.Colors...)

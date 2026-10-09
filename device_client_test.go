@@ -70,6 +70,25 @@ func TestPukkDeviceHTTPClientSkipsLoopbackAddress(t *testing.T) {
 	}
 }
 
+func TestPukkDeviceHTTPClientHandlesWindowsMappedIPv4AndIPv6(t *testing.T) {
+	for _, tc := range []struct{ ip, want string }{
+		{"::ffff:192.0.2.10", "http://192.0.2.10/api/setLeds/individual"},
+		{"2001:db8::10", "http://[2001:db8::10]:80/api/setLeds/individual"},
+	} {
+		t.Run(tc.ip, func(t *testing.T) {
+			client := &PukkDeviceHTTPClient{httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.String() != tc.want {
+					t.Fatalf("callback URL = %s, want %s", req.URL, tc.want)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
+			})}}
+			if err := client.SetIndividualLEDs(context.Background(), tc.ip, LEDValues{}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
